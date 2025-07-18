@@ -1,0 +1,59 @@
+name: Note Bot Workflow
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 毎日9:00 JST (UTC 0:00)
+  workflow_dispatch: # 手動実行も可能
+
+jobs:
+  run-note-bot:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. リポジトリをチェックアウト
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Pythonをセットアップ
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 3. Playwrightと依存関係をインストール
+      - name: Install Playwright and dependencies
+        run: |
+          pip install playwright python-dotenv
+          playwright install --with-deps
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: 0
+
+      # 4. 環境変数を.envファイルに書き出し
+      - name: Setup environment variables
+        run: |
+          echo "NOTE_USERNAME=mitsuki.momoka@i.softbank.jp
+          echo "NOTE_PASSWORD=Qyrgyq-sahbyr-wofco0
+
+      # 5. note Botを実行
+      - name: Run note Bot
+        run: python note_bot.py
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: 0
+
+      # 6. 更新されたcookieをコミット
+      - name: Commit updated cookies
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add note_cookies.json
+          git commit -m "Update note cookies" || echo "No changes to commit"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 7. エラー時にログをアップロード
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-logs
+          path: bot.log
