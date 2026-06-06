@@ -101,43 +101,35 @@ def main():
             page = context.new_page()
 
             print("🌐 noteの編集画面にアクセス中...")
-            page.goto("https://note.com/notes/new")
+            page.goto("https://editor.note.com/new")
             
-            # ページが完全に読み込まれるまで少し待つ
+            # ページ読み込み完了を待つ
             page.wait_for_load_state("networkidle")
             time.sleep(3)
 
-            print(f"🔗 現在アクセスしているURL: {page.url}")
-            
-            # 🚨 ログイン画面に弾かれていないかチェック！
-            if "login" in page.url:
-                print("⚠️【緊急】ログイン画面に飛ばされちゃいました！")
-                print("Cookie (state.json) の期限が切れているか、GitHubのSecretsの設定が間違っている可能性があります。")
-                return # エラーになる前に安全に終了する
-
-            # タイトルの入力
             print("✍️ タイトル入力中...")
             page.locator('textarea[placeholder="記事タイトル"]').fill(title)
 
-            # 本文を合成ペーストイベントで流し込む
-            print("📋 本文を合成ペーストイベントで流し込むよ...")
-            page.evaluate("""
-                (text) => {
-                    const editor = document.querySelector('.ProseMirror');
-                    if (editor) {
-                        editor.focus();
-                        const dataTransfer = new DataTransfer();
-                        dataTransfer.setData('text/plain', text);
-                        const event = new ClipboardEvent('paste', {
-                            clipboardData: dataTransfer,
-                            bubbles: true,
-                            cancelable: true
-                        });
-                        editor.dispatchEvent(event);
-                    }
-                }
-            """, body)
-            time.sleep(5) # 楽天カードの展開をしっかり待つ
+            print("✍️ 本文を1行ずつタイピングして流し込むよ（ブログカード展開のため！）...")
+            editor = page.locator('.ProseMirror')
+            editor.click()
+            time.sleep(1)
+
+            # ⌨️ 1行ずつ打ってEnter！（これでURLがカードになる！）
+            for line in body.split("\n"):
+                if line.strip() == "":
+                    # 空行の場合はEnterだけ押す
+                    page.keyboard.press("Enter")
+                else:
+                    # 文字を打ってEnter
+                    page.keyboard.type(line, delay=30)
+                    page.keyboard.press("Enter")
+                
+                # ここがミソ！URL展開（ブログカード化）の処理が走るのを1秒待ってあげる
+                time.sleep(1) 
+
+            # 全部の入力が終わった後、カードが完全に表示されるのを待つ
+            time.sleep(5)
 
             if publish_type == "公開":
                 print("⚙️ 公開設定画面を開くよ...")
@@ -161,7 +153,6 @@ def main():
 
             time.sleep(5)
 
-            # 3. GASにステータス更新を通知
             print(f"📤 GASのステータスを「{final_status}」に更新中...")
             update_res = requests.post(GAS_URL, json={"row": row_num, "status": final_status})
             print(f"✅ GAS更新結果: {update_res.text}")
