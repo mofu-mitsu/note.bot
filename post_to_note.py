@@ -7,7 +7,6 @@ import urllib.parse
 import traceback
 from playwright.sync_api import sync_playwright
 
-# 🔑 GASのURLを環境変数から取得
 GAS_URL = os.environ.get(
     "GAS_URL", 
     "https://script.google.com/macros/s/AKfycbyy4b1p8shIW1EjYpNK658SZ9mk-vR8RC09C3fIxzsTKqkAHAg3S1pJiW8dEIi1DX9h/exec"
@@ -42,10 +41,8 @@ def generate_product_reply(keyword, app_id="1055088369869282145", affiliate_id="
             affiliate_link = f"https://hb.afl.rakuten.co.jp/hgc/{affiliate_id}/?pc={urllib.parse.quote(product_url)}"
             return affiliate_link
         else:
-            print(f"⚠️ 楽天APIで商品が見つかりませんでした")
             return None
     except Exception as e:
-        print(f"⚠️ 楽天APIエラー: {type(e).__name__}: {str(e)}")
         return None
 
 def replace_affiliate_placeholders(body_text):
@@ -84,65 +81,38 @@ def main():
 
     with sync_playwright() as p:
         print("🚀 Playwright起動（Cookieを読み込みます）")
-        # GitHub Actions上では headless=True に、ローカルテスト時は headless=False に切り替えてね！
         browser = p.chromium.launch(headless=True) 
         
         try:
             context = browser.new_context(
                 storage_state="state.json",
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 800}
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/122.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800},
+                # 📋 クリップボードの読み書き権限をブラウザに与える！
+                permissions=["clipboard-write", "clipboard-read"]
             )
             page = context.new_page()
 
             print("🌐 noteの編集画面にアクセス中...")
             page.goto("https://note.com/notes/new")
             time.sleep(5)
-            print(f"🔗 現在アクセスしているURL: {page.url}")
-
-            # 🖼️ ★見出し画像の自動アップロード（もしファイルがあれば）★
-            if os.path.exists("default_header.png"):
-                print("🖼️ 見出し画像（default_header.png）をアップロード中...")
-                try:
-                    # 一番最初の file input（見出し画像用）にセット
-                    page.set_input_files('input[type="file"]', "default_header.png")
-                    time.sleep(5) # アップロード完了を待つ
-                    
-                    # 切り抜きポップアップの「保存」または「適用」ボタンを押す
-                    save_btn = page.locator('button:has-text("保存"), button:has-text("適用")')
-                    if save_btn.is_visible():
-                        save_btn.click()
-                        time.sleep(2)
-                        print("✅ 見出し画像のアップロードに成功したよ！")
-                except Exception as e:
-                    print(f"⚠️ 画像のアップロードでエラー（スキップします）: {e}")
 
             # タイトルの入力
             print("✍️ タイトル入力中...")
             page.locator('textarea[placeholder="記事タイトル"]').fill(title)
 
             # 本文エディタをクリック
-            print("✍️ 本文入力中...")
+            print("✍️ 本文をクリップボード経由で高速ペーストするよ...")
             editor = page.locator('.ProseMirror')
             editor.click()
             time.sleep(1)
 
-            # 📑 ★スラッシュコマンドを使った目次挿入★
-            print("📑 スラッシュコマンドで目次を挿入するよ...")
-            try:
-                page.keyboard.type("/目次")
-                time.sleep(1.5)
-                page.keyboard.press("Enter")
-                time.sleep(1)
-                page.keyboard.press("Enter") # 改行して次の本文エリアを確保
-            except Exception as e:
-                print(f"⚠️ 目次挿入でエラー: {e}")
-
-            # 本文の入力
-            for line in body.split("\n"):
-                page.keyboard.type(line, delay=30)
-                page.keyboard.press("Enter")
-                time.sleep(0.5)
+            # page.evaluateを使って、仮想ブラウザのクリップボードに本文を書き込む
+            page.evaluate("navigator.clipboard.writeText(arguments[0])", body)
+            
+            # ペースト（Control+V）を実行して、一瞬でnoteに流し込む！
+            page.keyboard.press("Control+V")
+            time.sleep(3) # コピペ展開とブログカード生成の待機
 
             # 公開設定画面へ
             print("⚙️ 公開設定画面を開くよ...")
@@ -163,18 +133,44 @@ def main():
                 page.get_by_role("button", name="投稿する").click()
                 final_status = "投稿済"
             else:
-                # 🔙 ★下書き保存のために「戻る」ボタンを押してエディタに戻る★
                 print("🔙 下書き保存のために、一度公開設定パネルを閉じる（戻る）よ...")
-                back_btn = page.locator('button[aria-label="戻る"], button[aria-label="閉じる"]').first
-                if back_btn.is_visible():
-                    back_btn.click()
-                else:
-                    # もしボタンが隠れてたらエスケープキーで閉じるのを試す
+                
+                # 複数の候補から「閉じる/戻る/キャンセル」ボタンを探して確実にクリックする
+                close_selectors = [
+                    'button[aria-label="戻る"]',
+                    'button[aria-label="閉じる"]',
+                    'button:has-text("キャンセル")',
+                    '.o-publishingSettings__close',
+                    'button[class*="close"]'
+                ]
+                
+                closed = False
+                for selector in close_selectors:
+                    try:
+                        btn = page.locator(selector).first
+                        # 今回は visibility の判定を待ってからクリック！
+                        if btn.is_visible():
+                            btn.click()
+                            print(f"✅ パネルを閉じました ({selector})")
+                            closed = True
+                            break
+                    except:
+                        pass
+                
+                if not closed:
+                    print("⚠️ ボタンが見つからなかったので、Escapeキーとエディタのクリックを試すよ...")
                     page.keyboard.press("Escape")
+                    time.sleep(1)
+                    try:
+                        # エディタ部分をクリックしてフォーカスを外し、パネルを閉じるのを狙う
+                        page.locator('.ProseMirror').click()
+                    except:
+                        pass
+
                 time.sleep(2)
 
                 print("📝 記事を「下書き」保存します！")
-                # エディタのヘッダーにある「下書き保存」をクリック
+                # エディタ画面上部の「下書き保存」ボタンをクリック
                 page.locator('button:has-text("下書き保存"), [aria-label*="下書き保存"]').first.click()
                 final_status = "下書き済"
 
