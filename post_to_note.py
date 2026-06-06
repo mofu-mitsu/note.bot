@@ -81,73 +81,88 @@ def main():
 
     with sync_playwright() as p:
         print("🚀 Playwright起動（Cookieを読み込みます）")
-        browser = p.chromium.launch(headless=True) 
+        
+        # 💻 GHAの仮想環境（Linux）でWebGLのロードエラーを防ぐためのGPUオフ設定を追加！
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-setuid-sandbox"
+            ]
+        ) 
         
         try:
             context = browser.new_context(
                 storage_state="state.json",
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/122.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 800},
-                # 📋 クリップボードの読み書き権限をブラウザに与える！
-                permissions=["clipboard-write", "clipboard-read"]
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800}
             )
             page = context.new_page()
 
             print("🌐 noteの編集画面にアクセス中...")
-            page.goto("https://note.com/notes/new")
+            page.goto("https://editor.note.com/new") # editor.note.com に直通！
             time.sleep(5)
 
+            # 🖼️ 見出し画像の自動アップロード（もしファイルがあれば）
+            if os.path.exists("default_header.png"):
+                print("🖼️ 見出し画像（default_header.png）をアップロード中...")
+                try:
+                    page.set_input_files('input[type="file"]', "default_header.png")
+                    time.sleep(5)
+                    save_btn = page.locator('button:has-text("保存"), button:has-text("適用")')
+                    if save_btn.is_visible():
+                        save_btn.click()
+                        time.sleep(2)
+                        print("✅ 見出し画像のアップロードに成功したよ！")
+                except Exception as e:
+                    print(f"⚠️ 画像のアップロードでエラー（スキップします）: {e}")
+
             # タイトルの入力
-# タイトルの入力
             print("✍️ タイトル入力中...")
             page.locator('textarea[placeholder="記事タイトル"]').fill(title)
 
-            # 本文エディタをクリック
-            print("✍️ 本文をクリップボード経由で高速ペーストするよ...")
-            editor = page.locator('.ProseMirror')
-            editor.click()
-            time.sleep(1)
+            # 📋 ★【最強の改善】OSのクリップボードに依存しない「合成ペースト」を実行！
+            # これでGHA上でも100%確実に本文が流し込まれ、お箸などのブログカードが展開されるよ！
+            print("📋 本文を合成ペーストイベントで流し込むよ...")
+            page.evaluate("""
+                (text) => {
+                    const editor = document.querySelector('.ProseMirror');
+                    editor.focus();
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.setData('text/plain', text);
+                    const event = new ClipboardEvent('paste', {
+                        clipboardData: dataTransfer,
+                        bubbles: true,
+                        cancelable: true
+                    });
+                    editor.dispatchEvent(event);
+                }
+            """, body)
+            time.sleep(5) # 楽天カードなどの自動展開をしっかり待つ
 
-            # 📋 【修正】JavaScriptに安全にテキストを渡す書き方に変更！
-            page.evaluate("text => navigator.clipboard.writeText(text)", body)
-            
-            # ペーストを実行！
-            page.keyboard.press("Control+V")
-            time.sleep(4) # ブログカードの展開をちょっと長めに待つ
-
-            # 公開設定画面へ
-            print("⚙️ 公開設定画面を開くよ...")
-            page.get_by_role("button", name="公開に進む").click()
-            time.sleep(3)
-
-            # ハッシュタグの設定
-            print("🏷️ ハッシュタグを設定中...")
-            hashtag_input = page.get_by_placeholder("ハッシュタグを追加")
-            for tag in hashtags:
-                hashtag_input.type(tag, delay=100)
-                page.keyboard.press("Enter")
-                time.sleep(0.5)
-
-            # 投稿または下書き保存
+            # 投稿または下書き保存（★戻るボタンを一切使わない超シンプル設計！）
             if publish_type == "公開":
+                # 公開設定画面へ
+                print("⚙️ 公開設定画面を開くよ...")
+                page.get_by_role("button", name="公開に進む").click()
+                time.sleep(3)
+
+                # ハッシュタグの設定
+                print("🏷️ ハッシュタグを設定中...")
+                hashtag_input = page.get_by_placeholder("ハッシュタグを追加")
+                for tag in hashtags:
+                    hashtag_input.type(tag, delay=100)
+                    page.keyboard.press("Enter")
+                    time.sleep(0.5)
+
                 print("🚀 記事を「公開」します！")
-                # 🏷️ 【修正】ボタンの名前をスクショ通りの「公開する」に変更！
                 page.get_by_role("button", name="公開する").click()
                 final_status = "投稿済"
             else:
-                # 🔙 【修正】左上の「＜」戻るボタンをピンポイントでクリック！
-                print("🔙 下書き保存のために、一度公開設定パネルを閉じる（戻る）よ...")
-                try:
-                    # 公開設定ヘッダーの一番最初のボタン（左上の＜）をクリック
-                    page.locator('header button').first.click()
-                    print("✅ 戻るボタンをクリックしました！")
-                except Exception as e:
-                    print(f"⚠️ 戻るボタンが押せなかったので、Escキーを試します: {e}")
-                    page.keyboard.press("Escape")
-                time.sleep(2)
-
-                print("📝 記事を「下書き」保存します！")
-                # 🏷️ 【修正】ヘッダーにある「下書き保存」をピンポイントでクリック！
+                # 💡 下書き保存のときは、公開設定を開かずにエディタ上のボタンをそのまま押すだけ！
+                print("📝 記事をそのまま「下書き」保存します！")
                 page.get_by_text("下書き保存").first.click()
                 final_status = "下書き済"
 
