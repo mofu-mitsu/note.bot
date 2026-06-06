@@ -114,32 +114,50 @@ def main():
                 print("Cookie (state.json) の期限が切れているか、GitHubのSecretsの設定が間違っている可能性があります。")
                 return
 
-            # 🖼️ 見出し画像の自動アップロード（3秒で見つからなければすぐスキップ！）
-            # 🖼️ 見出し画像の自動アップロード
+# 🖼️ 見出し画像の自動アップロード（最強2段構え作戦！）
             if os.path.exists("default_header.png"):
                 print("🖼️ 見出し画像をセットするよ...")
                 try:
-                    # 💡 【改善1】タイトル欄が表示されるまで待つ！（＝エディタの描画完了を確実にする）
+                    # まずはタイトル欄が表示される（エディタが完成する）のを確実に待つ！
                     page.locator('textarea[placeholder="記事タイトル"]').wait_for(state="visible", timeout=10000)
-                    time.sleep(1) # ふわっと表示されるアニメーションを待つ
+                    time.sleep(1)
                     
-                    with page.expect_file_chooser(timeout=5000) as fc_info:
-                        # 💡 【改善2】buttonタグに限定せず、幅広くセレクタを探す！
-                        image_btn = page.locator('[aria-label*="見出し画像"], [aria-label*="カバー画像"], .o-noteEyecatch, [data-testid*="eyecatch"]').first
-                        image_btn.click(timeout=3000)
+                    # 💥 作戦1：隠れているアップロードタグに直接画像を叩き込む！
+                    input_file = page.locator('input[type="file"]').first
+                    print("👉 作戦1: 隠しファイルタグに直接アップロードを試します...")
+                    # 存在していれば強制的にファイルをセット
+                    input_file.set_input_files("default_header.png", timeout=3000)
+                    time.sleep(3) # アップロード完了を待つ
                     
-                    file_chooser = fc_info.value
-                    file_chooser.set_files("default_header.png")
-                    time.sleep(3) # アップロード完了・切り抜き画面の表示を待つ
-                    
-                    # 切り抜き画面が出たら保存ボタンを押す
-                    save_btn = page.locator('button:has-text("保存"), button:has-text("適用"), button:has-text("登録")').first
+                    # トリミング画面の保存ボタンを押す
+                    save_btn = page.locator('button:has-text("保存"), button:has-text("適用"), button:has-text("完了"), button:has-text("登録")').first
                     if save_btn.is_visible(timeout=3000):
                         save_btn.click()
-                    print("✅ 見出し画像のアップロードに成功したよ！")
+                    print("✅ 見出し画像の設定成功！（作戦1）")
                     time.sleep(2)
+                    
                 except Exception as e:
-                    print(f"⚠️ 画像設定スキップ（UIが違うため諦めます）: {e}")
+                    print(f"⚠️ 作戦1失敗。作戦2（座標クリック）に移行します！: {e}")
+                    try:
+                        # 💥 作戦2：タイトル欄の少し上（カメラボタンの座標）を直接クリックする！
+                        title_box = page.locator('textarea[placeholder="記事タイトル"]').bounding_box()
+                        if title_box:
+                            with page.expect_file_chooser(timeout=3000) as fc_info:
+                                print("👉 作戦2: タイトルの左上（カメラボタンの位置）をピンポイントでクリック！")
+                                # タイトルの左端からちょっと右、ちょっと上の「丸いボタン」の位置を撃つ！
+                                page.mouse.click(title_box["x"] + 20, title_box["y"] - 50)
+                            
+                            file_chooser = fc_info.value
+                            file_chooser.set_files("default_header.png")
+                            time.sleep(3)
+                            
+                            save_btn = page.locator('button:has-text("保存"), button:has-text("適用"), button:has-text("完了"), button:has-text("登録")').first
+                            if save_btn.is_visible(timeout=3000):
+                                save_btn.click()
+                            print("✅ 見出し画像の設定成功！（作戦2）")
+                            time.sleep(2)
+                    except Exception as e2:
+                        print(f"⚠️ 画像設定スキップ（作戦2も失敗。手強すぎるので諦めますw）: {e2}")
 
             # タイトルの入力
             print("✍️ タイトル入力中...")
