@@ -96,11 +96,23 @@ def main():
         
         try:
             # GHAのymlで生成した state.json (Cookie) を読み込む
-            context = browser.new_context(storage_state="state.json")
+# 🕵️‍♀️ 人間のブラウザになりすます設定を追加！
+            context = browser.new_context(
+                storage_state="state.json",
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800}
+            )
             page = context.new_page()
 
+            # 新規記事作成ページへ
+            print("🌐 noteの編集画面にアクセス中...")
             page.goto("https://note.com/notes/new")
             time.sleep(5)
+
+            # 📸 デバッグ用：今本当にエディタ画面にいるかURLを確認する
+            print(f"🔗 現在アクセスしているURL: {page.url}")
+            if "login" in page.url:
+                print("⚠️ ログイン画面に弾かれちゃってます！Cookieが無効か、セキュリティブロックが発生しています。")
 
             # タイトルの入力
             print("✍️ タイトル入力中...")
