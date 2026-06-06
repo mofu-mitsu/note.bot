@@ -1,62 +1,38 @@
-name: Note Bot Workflow
+name: Mirintya Note Auto Post
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 毎日9:00 JST (UTC 0:00)
-  workflow_dispatch: # 手動実行も可能
-
-permissions:
-  contents: write  # ←ここ追加！
+    # 毎日日本時間の夜19:30に実行（UTCだとAM10:30）
+    - cron: '30 10 * * *'
+  workflow_dispatch: # 手動でいつでも実行できるようにするボタン
 
 jobs:
-  run-note-bot:
+  post:
     runs-on: ubuntu-latest
+
     steps:
-      # 1. リポジトリをチェックアウト
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Pythonをセットアップ
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
-      # 3. Playwrightと依存関係をインストール
-      - name: Install Playwright and dependencies
+      - name: Install dependencies
         run: |
-          pip install playwright python-dotenv
-          playwright install --with-deps
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: 0
+          python -m pip install --upgrade pip
+          pip install playwright requests
+          playwright install chromium
 
-      # 4. 環境変数を.envファイルに書き出し
-      - name: Setup environment variables
+      - name: Create state.json from Secret
         run: |
-          echo "NOTE_USERNAME=mitsuki.momoka@i.softbank.jp
-          echo "NOTE_PASSWORD=Qyrgyq-sahbyr-wofco0
+          # GitHubのSecretからCookie情報を復元してファイルにする
+          echo '${{ secrets.NOTE_STATE_JSON }}' > state.json
 
-      # 5. note Botを実行
-      - name: Run note Bot
-        run: python note_bot.py
+      - name: Run posting script
         env:
-          PLAYWRIGHT_BROWSERS_PATH: 0
-
-      # 6. 更新されたcookieをコミット
-      - name: Commit updated cookies
+          GAS_URL: ${{ secrets.GAS_URL }}
         run: |
-          git config user.name "GitHub Actions Bot"
-          git config user.email "actions@github.com"
-          git add note_cookies.json
-          git commit -m "Update note cookies" || echo "No changes to commit"
-          git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # 7. エラー時にログをアップロード
-      - name: Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: bot-logs
-          path: bot.log
+          # 投稿スクリプトを実行
+          python post_to_note.py
