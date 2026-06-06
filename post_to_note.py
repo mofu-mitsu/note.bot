@@ -92,7 +92,7 @@ def main():
     with sync_playwright() as p:
         print("🚀 Playwright起動（Cookieを読み込みます）")
         # GHA上ではheadless=Trueにしないと動かないけど、今はローカルテスト用に見えるようにしてるよ！
-        browser = p.chromium.launch(headless=False) 
+        browser = p.chromium.launch(headless=True)
         
         try:
             # GHAのymlで生成した state.json (Cookie) を読み込む
