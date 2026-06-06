@@ -100,32 +100,39 @@ def main():
             )
             page = context.new_page()
 
+            # 🌐 安全な正規ルートから入る！
             print("🌐 noteの編集画面にアクセス中...")
-            page.goto("https://editor.note.com/new")
+            page.goto("https://note.com/notes/new")
             page.wait_for_load_state("networkidle")
             time.sleep(3)
 
-            # 🖼️ ★見出し画像の自動アップロード（失敗しても止まらない設計）★
+            print(f"🔗 現在アクセスしているURL: {page.url}")
+            
+            # 🚨 ログイン画面に弾かれていないかチェック！
+            if "login" in page.url:
+                print("⚠️【緊急】ログイン画面に飛ばされちゃいました！")
+                print("Cookie (state.json) の期限が切れているか、GitHubのSecretsの設定が間違っている可能性があります。")
+                return
+
+            # 🖼️ 見出し画像の自動アップロード（3秒で見つからなければすぐスキップ！）
             if os.path.exists("default_header.png"):
                 print("🖼️ 見出し画像をセットするよ...")
                 try:
-                    # ファイル選択ダイアログが開くのを待ち構える
-                    with page.expect_file_chooser(timeout=5000) as fc_info:
-                        # 見出し画像のカメラアイコン（またはプレースホルダー）をクリック
-                        page.locator('button[aria-label*="見出し画像"], .o-noteEyecatch__placeholder, svg').first.click()
+                    with page.expect_file_chooser(timeout=3000) as fc_info:
+                        # 3秒だけ待つ設定（timeout=3000）
+                        page.locator('button[aria-label*="見出し画像"], .o-noteEyecatch__placeholder, svg').first.click(timeout=3000)
                     
                     file_chooser = fc_info.value
                     file_chooser.set_files("default_header.png")
-                    time.sleep(3) # アップロード待ち
+                    time.sleep(3)
                     
-                    # トリミング画面が出たら「保存」や「適用」を押す
                     save_btn = page.locator('button:has-text("保存"), button:has-text("適用"), button:has-text("登録")').first
                     if save_btn.is_visible(timeout=3000):
                         save_btn.click()
                     print("✅ 見出し画像のアップロードに成功したよ！")
                     time.sleep(2)
                 except Exception as e:
-                    print(f"⚠️ 画像設定スキップ（UIが少し違うみたい）: {e}")
+                    print(f"⚠️ 画像設定スキップ（UIが違うため諦めます）: {e}")
 
             # タイトルの入力
             print("✍️ タイトル入力中...")
@@ -136,27 +143,21 @@ def main():
             editor.click()
             time.sleep(1)
 
-            # 📑 ★目次の挿入（半角スラッシュ＋クリック作戦）★
+            # 📑 目次の挿入（半角スラッシュ作戦）
             print("📑 目次を挿入するよ...")
             try:
-                # 1. 半角スラッシュを打って、追加メニューを呼び出す
                 page.keyboard.type("/")
                 time.sleep(1.5)
-                
-                # 2. メニューの中から「目次」という文字を探してクリック
+                # これも3秒で見つからなければスキップ
                 page.locator('text="目次"').first.click(timeout=3000)
                 time.sleep(1)
-                
-                # 3. 目次のブロックから抜け出すために改行
                 page.keyboard.press("Enter")
                 print("✅ 目次を挿入したよ！")
             except Exception as e:
                 print(f"⚠️ 目次挿入スキップ（メニューが出なかったかも）: {e}")
-                # 失敗した場合は、打ってしまった「/」を消しておく
                 page.keyboard.press("Backspace")
 
             print("✍️ 本文を1行ずつタイピングして流し込むよ...")
-            # 1行ずつ打ってEnter（楽天アフィのブログカードを展開させるため！）
             for line in body.split("\n"):
                 if line.strip() == "":
                     page.keyboard.press("Enter")
@@ -165,7 +166,7 @@ def main():
                     page.keyboard.press("Enter")
                 time.sleep(1) 
 
-            time.sleep(5) # 全部打ち終わったらカードの展開をしっかり待つ
+            time.sleep(5)
 
             if publish_type == "公開":
                 print("⚙️ 公開設定画面を開くよ...")
