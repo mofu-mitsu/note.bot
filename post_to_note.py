@@ -98,6 +98,7 @@ def main():
             time.sleep(5)
 
             # タイトルの入力
+# タイトルの入力
             print("✍️ タイトル入力中...")
             page.locator('textarea[placeholder="記事タイトル"]').fill(title)
 
@@ -107,12 +108,12 @@ def main():
             editor.click()
             time.sleep(1)
 
-            # page.evaluateを使って、仮想ブラウザのクリップボードに本文を書き込む
-            page.evaluate("navigator.clipboard.writeText(arguments[0])", body)
+            # 📋 【修正】JavaScriptに安全にテキストを渡す書き方に変更！
+            page.evaluate("text => navigator.clipboard.writeText(text)", body)
             
-            # ペースト（Control+V）を実行して、一瞬でnoteに流し込む！
+            # ペーストを実行！
             page.keyboard.press("Control+V")
-            time.sleep(3) # コピペ展開とブログカード生成の待機
+            time.sleep(4) # ブログカードの展開をちょっと長めに待つ
 
             # 公開設定画面へ
             print("⚙️ 公開設定画面を開くよ...")
@@ -130,48 +131,24 @@ def main():
             # 投稿または下書き保存
             if publish_type == "公開":
                 print("🚀 記事を「公開」します！")
-                page.get_by_role("button", name="投稿する").click()
+                # 🏷️ 【修正】ボタンの名前をスクショ通りの「公開する」に変更！
+                page.get_by_role("button", name="公開する").click()
                 final_status = "投稿済"
             else:
+                # 🔙 【修正】左上の「＜」戻るボタンをピンポイントでクリック！
                 print("🔙 下書き保存のために、一度公開設定パネルを閉じる（戻る）よ...")
-                
-                # 複数の候補から「閉じる/戻る/キャンセル」ボタンを探して確実にクリックする
-                close_selectors = [
-                    'button[aria-label="戻る"]',
-                    'button[aria-label="閉じる"]',
-                    'button:has-text("キャンセル")',
-                    '.o-publishingSettings__close',
-                    'button[class*="close"]'
-                ]
-                
-                closed = False
-                for selector in close_selectors:
-                    try:
-                        btn = page.locator(selector).first
-                        # 今回は visibility の判定を待ってからクリック！
-                        if btn.is_visible():
-                            btn.click()
-                            print(f"✅ パネルを閉じました ({selector})")
-                            closed = True
-                            break
-                    except:
-                        pass
-                
-                if not closed:
-                    print("⚠️ ボタンが見つからなかったので、Escapeキーとエディタのクリックを試すよ...")
+                try:
+                    # 公開設定ヘッダーの一番最初のボタン（左上の＜）をクリック
+                    page.locator('header button').first.click()
+                    print("✅ 戻るボタンをクリックしました！")
+                except Exception as e:
+                    print(f"⚠️ 戻るボタンが押せなかったので、Escキーを試します: {e}")
                     page.keyboard.press("Escape")
-                    time.sleep(1)
-                    try:
-                        # エディタ部分をクリックしてフォーカスを外し、パネルを閉じるのを狙う
-                        page.locator('.ProseMirror').click()
-                    except:
-                        pass
-
                 time.sleep(2)
 
                 print("📝 記事を「下書き」保存します！")
-                # エディタ画面上部の「下書き保存」ボタンをクリック
-                page.locator('button:has-text("下書き保存"), [aria-label*="下書き保存"]').first.click()
+                # 🏷️ 【修正】ヘッダーにある「下書き保存」をピンポイントでクリック！
+                page.get_by_text("下書き保存").first.click()
                 final_status = "下書き済"
 
             time.sleep(5)
