@@ -7,14 +7,12 @@ import urllib.parse
 import traceback
 from playwright.sync_api import sync_playwright
 
-# 🔑 GASのURLを環境変数（GitHub Secrets）から取得！
-# ローカルでテストする時は、第2引数に直接URLを入れておけば動くよ！
+# 🔑 GASのURLを環境変数から取得
 GAS_URL = os.environ.get(
     "GAS_URL", 
     "https://script.google.com/macros/s/AKfycbyy4b1p8shIW1EjYpNK658SZ9mk-vR8RC09C3fIxzsTKqkAHAg3S1pJiW8dEIi1DX9h/exec"
 )
 
-# 🛍️ みつきの楽天アフィリエイト取得ロジック
 def generate_product_reply(keyword, app_id="1055088369869282145", affiliate_id="3d94ea21.0d257908.3d94ea22.0ed11c6e"):
     print(f"🛍️ グッズ提案ロジック開始: キーワード={keyword}")
     api_url = "https://app.rakuten.co.jp/services/api/IchibaItem/Search/20170706"
@@ -44,19 +42,16 @@ def generate_product_reply(keyword, app_id="1055088369869282145", affiliate_id="
             affiliate_link = f"https://hb.afl.rakuten.co.jp/hgc/{affiliate_id}/?pc={urllib.parse.quote(product_url)}"
             return affiliate_link
         else:
-            print(f"⚠️ 楽天APIで商品が見つかりませんでした: {data}")
+            print(f"⚠️ 楽天APIで商品が見つかりませんでした")
             return None
     except Exception as e:
         print(f"⚠️ 楽天APIエラー: {type(e).__name__}: {str(e)}")
-        traceback.print_exc()
         return None
 
-# 本文中の [楽天アフィ:キーワード] を実際のリンクに置換する関数
 def replace_affiliate_placeholders(body_text):
     import re
     pattern = r"\[楽天アフィ:(.+?)\]"
     matches = re.findall(pattern, body_text)
-    
     for match in matches:
         print(f"🔍 アフィ置換対象を発見: {match}")
         link = generate_product_reply(match)
@@ -68,7 +63,6 @@ def replace_affiliate_placeholders(body_text):
     return body_text
 
 def main():
-    # 1. GASから「未投稿」の記事を取得
     print("📥 GASから記事を取得中...")
     response = requests.get(GAS_URL)
     article_data = response.json()
@@ -88,15 +82,12 @@ def main():
     hashtags = [t.strip() for t in raw_hashtags.replace("、", ",").split(",") if t.strip()]
     body = replace_affiliate_placeholders(body)
 
-    # 2. Playwrightでnote自動投稿
     with sync_playwright() as p:
         print("🚀 Playwright起動（Cookieを読み込みます）")
-        # GHA上ではheadless=Trueにしないと動かないけど、今はローカルテスト用に見えるようにしてるよ！
-        browser = p.chromium.launch(headless=True)
+        # GitHub Actions上では headless=True に、ローカルテスト時は headless=False に切り替えてね！
+        browser = p.chromium.launch(headless=True) 
         
         try:
-            # GHAのymlで生成した state.json (Cookie) を読み込む
-# 🕵️‍♀️ 人間のブラウザになりすます設定を追加！
             context = browser.new_context(
                 storage_state="state.json",
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -104,42 +95,48 @@ def main():
             )
             page = context.new_page()
 
-            # 新規記事作成ページへ
             print("🌐 noteの編集画面にアクセス中...")
             page.goto("https://note.com/notes/new")
             time.sleep(5)
-
-            # 📸 デバッグ用：今本当にエディタ画面にいるかURLを確認する
             print(f"🔗 現在アクセスしているURL: {page.url}")
-            if "login" in page.url:
-                print("⚠️ ログイン画面に弾かれちゃってます！Cookieが無効か、セキュリティブロックが発生しています。")
+
+            # 🖼️ ★見出し画像の自動アップロード（もしファイルがあれば）★
+            if os.path.exists("default_header.png"):
+                print("🖼️ 見出し画像（default_header.png）をアップロード中...")
+                try:
+                    # 一番最初の file input（見出し画像用）にセット
+                    page.set_input_files('input[type="file"]', "default_header.png")
+                    time.sleep(5) # アップロード完了を待つ
+                    
+                    # 切り抜きポップアップの「保存」または「適用」ボタンを押す
+                    save_btn = page.locator('button:has-text("保存"), button:has-text("適用")')
+                    if save_btn.is_visible():
+                        save_btn.click()
+                        time.sleep(2)
+                        print("✅ 見出し画像のアップロードに成功したよ！")
+                except Exception as e:
+                    print(f"⚠️ 画像のアップロードでエラー（スキップします）: {e}")
 
             # タイトルの入力
             print("✍️ タイトル入力中...")
             page.locator('textarea[placeholder="記事タイトル"]').fill(title)
 
-            # 本文エディタにフォーカス
+            # 本文エディタをクリック
             print("✍️ 本文入力中...")
             editor = page.locator('.ProseMirror')
             editor.click()
             time.sleep(1)
 
-            # 📑 ★ 目次の自動挿入 ★
-            print("📑 目次を挿入するよ...")
+            # 📑 ★スラッシュコマンドを使った目次挿入★
+            print("📑 スラッシュコマンドで目次を挿入するよ...")
             try:
-                # 1. 左側に出る「+」ボタン（追加メニュー）をクリック
-                page.locator('button[aria-label="追加メニューを開く"], button[aria-label="ブロックを追加"]').first.click(timeout=3000)
-                time.sleep(1)
-                
-                # 2. 「要素の追加」ポップアップから「目次」をクリック
-                page.get_by_text("目次", exact=True).click(timeout=3000)
-                print("✅ 目次ブロックを挿入したよ！")
-                
-                # 3. 目次の下に文字を打つために、Enterを押して行を確保
-                time.sleep(1)
+                page.keyboard.type("/目次")
+                time.sleep(1.5)
                 page.keyboard.press("Enter")
+                time.sleep(1)
+                page.keyboard.press("Enter") # 改行して次の本文エリアを確保
             except Exception as e:
-                print(f"⚠️ 目次の挿入をスキップしたよ（noteのボタンの仕様が変わったかも）: {e}")
+                print(f"⚠️ 目次挿入でエラー: {e}")
 
             # 本文の入力
             for line in body.split("\n"):
@@ -166,8 +163,19 @@ def main():
                 page.get_by_role("button", name="投稿する").click()
                 final_status = "投稿済"
             else:
+                # 🔙 ★下書き保存のために「戻る」ボタンを押してエディタに戻る★
+                print("🔙 下書き保存のために、一度公開設定パネルを閉じる（戻る）よ...")
+                back_btn = page.locator('button[aria-label="戻る"], button[aria-label="閉じる"]').first
+                if back_btn.is_visible():
+                    back_btn.click()
+                else:
+                    # もしボタンが隠れてたらエスケープキーで閉じるのを試す
+                    page.keyboard.press("Escape")
+                time.sleep(2)
+
                 print("📝 記事を「下書き」保存します！")
-                page.get_by_role("button", name="下書き保存").click()
+                # エディタのヘッダーにある「下書き保存」をクリック
+                page.locator('button:has-text("下書き保存"), [aria-label*="下書き保存"]').first.click()
                 final_status = "下書き済"
 
             time.sleep(5)
