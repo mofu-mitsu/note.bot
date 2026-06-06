@@ -115,17 +115,24 @@ def main():
                 return
 
             # 🖼️ 見出し画像の自動アップロード（3秒で見つからなければすぐスキップ！）
+            # 🖼️ 見出し画像の自動アップロード
             if os.path.exists("default_header.png"):
                 print("🖼️ 見出し画像をセットするよ...")
                 try:
-                    with page.expect_file_chooser(timeout=3000) as fc_info:
-                        # 3秒だけ待つ設定（timeout=3000）
-                        page.locator('button[aria-label*="見出し画像"], .o-noteEyecatch__placeholder, svg').first.click(timeout=3000)
+                    # 💡 【改善1】タイトル欄が表示されるまで待つ！（＝エディタの描画完了を確実にする）
+                    page.locator('textarea[placeholder="記事タイトル"]').wait_for(state="visible", timeout=10000)
+                    time.sleep(1) # ふわっと表示されるアニメーションを待つ
+                    
+                    with page.expect_file_chooser(timeout=5000) as fc_info:
+                        # 💡 【改善2】buttonタグに限定せず、幅広くセレクタを探す！
+                        image_btn = page.locator('[aria-label*="見出し画像"], [aria-label*="カバー画像"], .o-noteEyecatch, [data-testid*="eyecatch"]').first
+                        image_btn.click(timeout=3000)
                     
                     file_chooser = fc_info.value
                     file_chooser.set_files("default_header.png")
-                    time.sleep(3)
+                    time.sleep(3) # アップロード完了・切り抜き画面の表示を待つ
                     
+                    # 切り抜き画面が出たら保存ボタンを押す
                     save_btn = page.locator('button:has-text("保存"), button:has-text("適用"), button:has-text("登録")').first
                     if save_btn.is_visible(timeout=3000):
                         save_btn.click()
