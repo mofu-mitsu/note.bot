@@ -110,39 +110,50 @@ def main():
                 return
 
             # 🖼️ 見出し画像の自動アップロード（メニュー突破作戦！）
+# 🖼️ 見出し画像の自動アップロード（Shift+Tab スナイパー作戦！）
             if os.path.exists("default_header.png"):
                 print("🖼️ 見出し画像をセットするよ...")
                 try:
-                    # タイトル入力欄が表示されるまで待つ
+                    # 1. タイトル入力欄が表示されるまで待つ
                     page.locator('textarea[placeholder="記事タイトル"]').wait_for(state="visible", timeout=10000)
                     time.sleep(1)
                     
-                    # カメラボタンの位置を計算してクリック
-                    title_box = page.locator('textarea[placeholder="記事タイトル"]').bounding_box()
-                    if title_box:
-                        print("👉 1. カメラボタンをクリックしてメニューを開くよ！")
-                        page.mouse.click(title_box["x"] + 20, title_box["y"] - 50)
-                        time.sleep(1.5) # メニューがふわっと出るのを待つ
+                    print("👉 1. タイトル欄にフォーカスして、Shift+Tabで見出し画像ボタンを狙い撃ちするよ！")
+                    page.locator('textarea[placeholder="記事タイトル"]').focus()
+                    time.sleep(0.5)
+                    
+                    # 2. Shift+Tabで1つ前の要素（見出し画像ボタン）に戻ってEnter（クリック）！
+                    page.keyboard.press("Shift+Tab")
+                    time.sleep(0.5)
+                    page.keyboard.press("Enter")
+                    time.sleep(2) # メニューがふわっと出るのを待つ
+                    
+                    print("👉 2. メニューから「アップロード」を探すか、隠しタグを撃つよ！")
+                    try:
+                        with page.expect_file_chooser(timeout=4000) as fc_info:
+                            # 「アップロード」という文字が含まれる要素を幅広く探してクリック！
+                            page.locator('text="画像をアップロード", text="アップロード", text="PCからアップロード", text="画像を選択", text="ライブラリ"').first.click(timeout=3000)
                         
-                        print("👉 2. メニューから「画像をアップロード」を選ぶよ！")
-                        with page.expect_file_chooser(timeout=5000) as fc_info:
-                            # PC版の「画像をアップロード」か、スマホ版の「ライブラリ」の文字をクリック
-                            page.locator('text="画像をアップロード", text="ライブラリ"').first.click(timeout=3000)
-                        
-                        # ファイル選択
                         file_chooser = fc_info.value
                         file_chooser.set_files("default_header.png")
-                        time.sleep(4) # 画像のアップロードとトリミング画面の表示を待つ
-                        
-                        # 保存ボタンを押す
-                        print("👉 3. トリミング画面の保存ボタンを押すよ！")
-                        save_btn = page.locator('button:has-text("保存"), button:has-text("適用"), button:has-text("完了"), button:has-text("登録")').first
-                        if save_btn.is_visible(timeout=3000):
-                            save_btn.click()
-                        print("✅ 見出し画像の設定成功！！")
-                        time.sleep(2)
+                    except Exception as e:
+                        print("⚠️ メニューのクリックに失敗。直接 input[type=file] へのセットを試します！")
+                        # メニューが開いたことで inputタグが有効になっている可能性に賭ける！
+                        page.locator('input[type="file"]').first.set_input_files("default_header.png", timeout=3000)
+                    
+                    time.sleep(4) # 画像のアップロードとトリミング画面の表示を待つ
+                    
+                    print("👉 3. トリミング画面の保存ボタンを押すよ！")
+                    save_btn = page.locator('button:has-text("保存"), button:has-text("適用"), button:has-text("完了"), button:has-text("登録")').first
+                    if save_btn.is_visible(timeout=3000):
+                        save_btn.click()
+                        print("✅ 見出し画像の設定成功！！（完全勝利！）")
+                    else:
+                        print("⚠️ 保存ボタンが見つからなかったけど、アップロード自体は完了してるかも！")
+                    time.sleep(2)
+                    
                 except Exception as e:
-                    print(f"⚠️ 画像設定スキップ（メニュー突破失敗）: {e}")
+                    print(f"⚠️ 画像設定スキップ（作戦失敗。手強すぎるので諦めますw）: {e}")
 
             # タイトルの入力
             print("✍️ タイトル入力中...")
