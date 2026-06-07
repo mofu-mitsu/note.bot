@@ -100,64 +100,49 @@ def main():
             )
             page = context.new_page()
 
-            # 🌐 安全な正規ルートから入る！
             print("🌐 noteの編集画面にアクセス中...")
             page.goto("https://note.com/notes/new")
             page.wait_for_load_state("networkidle")
             time.sleep(3)
 
-            print(f"🔗 現在アクセスしているURL: {page.url}")
-            
-            # 🚨 ログイン画面に弾かれていないかチェック！
             if "login" in page.url:
                 print("⚠️【緊急】ログイン画面に飛ばされちゃいました！")
-                print("Cookie (state.json) の期限が切れているか、GitHubのSecretsの設定が間違っている可能性があります。")
                 return
 
-# 🖼️ 見出し画像の自動アップロード（最強2段構え作戦！）
+            # 🖼️ 見出し画像の自動アップロード（メニュー突破作戦！）
             if os.path.exists("default_header.png"):
                 print("🖼️ 見出し画像をセットするよ...")
                 try:
-                    # まずはタイトル欄が表示される（エディタが完成する）のを確実に待つ！
+                    # タイトル入力欄が表示されるまで待つ
                     page.locator('textarea[placeholder="記事タイトル"]').wait_for(state="visible", timeout=10000)
                     time.sleep(1)
                     
-                    # 💥 作戦1：隠れているアップロードタグに直接画像を叩き込む！
-                    input_file = page.locator('input[type="file"]').first
-                    print("👉 作戦1: 隠しファイルタグに直接アップロードを試します...")
-                    # 存在していれば強制的にファイルをセット
-                    input_file.set_input_files("default_header.png", timeout=3000)
-                    time.sleep(3) # アップロード完了を待つ
-                    
-                    # トリミング画面の保存ボタンを押す
-                    save_btn = page.locator('button:has-text("保存"), button:has-text("適用"), button:has-text("完了"), button:has-text("登録")').first
-                    if save_btn.is_visible(timeout=3000):
-                        save_btn.click()
-                    print("✅ 見出し画像の設定成功！（作戦1）")
-                    time.sleep(2)
-                    
+                    # カメラボタンの位置を計算してクリック
+                    title_box = page.locator('textarea[placeholder="記事タイトル"]').bounding_box()
+                    if title_box:
+                        print("👉 1. カメラボタンをクリックしてメニューを開くよ！")
+                        page.mouse.click(title_box["x"] + 20, title_box["y"] - 50)
+                        time.sleep(1.5) # メニューがふわっと出るのを待つ
+                        
+                        print("👉 2. メニューから「画像をアップロード」を選ぶよ！")
+                        with page.expect_file_chooser(timeout=5000) as fc_info:
+                            # PC版の「画像をアップロード」か、スマホ版の「ライブラリ」の文字をクリック
+                            page.locator('text="画像をアップロード", text="ライブラリ"').first.click(timeout=3000)
+                        
+                        # ファイル選択
+                        file_chooser = fc_info.value
+                        file_chooser.set_files("default_header.png")
+                        time.sleep(4) # 画像のアップロードとトリミング画面の表示を待つ
+                        
+                        # 保存ボタンを押す
+                        print("👉 3. トリミング画面の保存ボタンを押すよ！")
+                        save_btn = page.locator('button:has-text("保存"), button:has-text("適用"), button:has-text("完了"), button:has-text("登録")').first
+                        if save_btn.is_visible(timeout=3000):
+                            save_btn.click()
+                        print("✅ 見出し画像の設定成功！！")
+                        time.sleep(2)
                 except Exception as e:
-                    print(f"⚠️ 作戦1失敗。作戦2（座標クリック）に移行します！: {e}")
-                    try:
-                        # 💥 作戦2：タイトル欄の少し上（カメラボタンの座標）を直接クリックする！
-                        title_box = page.locator('textarea[placeholder="記事タイトル"]').bounding_box()
-                        if title_box:
-                            with page.expect_file_chooser(timeout=3000) as fc_info:
-                                print("👉 作戦2: タイトルの左上（カメラボタンの位置）をピンポイントでクリック！")
-                                # タイトルの左端からちょっと右、ちょっと上の「丸いボタン」の位置を撃つ！
-                                page.mouse.click(title_box["x"] + 20, title_box["y"] - 50)
-                            
-                            file_chooser = fc_info.value
-                            file_chooser.set_files("default_header.png")
-                            time.sleep(3)
-                            
-                            save_btn = page.locator('button:has-text("保存"), button:has-text("適用"), button:has-text("完了"), button:has-text("登録")').first
-                            if save_btn.is_visible(timeout=3000):
-                                save_btn.click()
-                            print("✅ 見出し画像の設定成功！（作戦2）")
-                            time.sleep(2)
-                    except Exception as e2:
-                        print(f"⚠️ 画像設定スキップ（作戦2も失敗。手強すぎるので諦めますw）: {e2}")
+                    print(f"⚠️ 画像設定スキップ（メニュー突破失敗）: {e}")
 
             # タイトルの入力
             print("✍️ タイトル入力中...")
@@ -168,20 +153,20 @@ def main():
             editor.click()
             time.sleep(1)
 
-            # 📑 目次の挿入（半角スラッシュ作戦）
+            # 📑 目次の挿入
             print("📑 目次を挿入するよ...")
             try:
                 page.keyboard.type("/")
                 time.sleep(1.5)
-                # これも3秒で見つからなければスキップ
                 page.locator('text="目次"').first.click(timeout=3000)
                 time.sleep(1)
                 page.keyboard.press("Enter")
                 print("✅ 目次を挿入したよ！")
             except Exception as e:
-                print(f"⚠️ 目次挿入スキップ（メニューが出なかったかも）: {e}")
+                print(f"⚠️ 目次挿入スキップ: {e}")
                 page.keyboard.press("Backspace")
 
+            # 本文のタイピング（楽天アフィ用）
             print("✍️ 本文を1行ずつタイピングして流し込むよ...")
             for line in body.split("\n"):
                 if line.strip() == "":
@@ -193,6 +178,7 @@ def main():
 
             time.sleep(5)
 
+            # 保存または公開
             if publish_type == "公開":
                 print("⚙️ 公開設定画面を開くよ...")
                 page.get_by_role("button", name="公開に進む").click()
