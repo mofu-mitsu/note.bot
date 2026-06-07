@@ -109,8 +109,9 @@ def main():
                 print("⚠️【緊急】ログイン画面に飛ばされちゃいました！")
                 return
 
-            # 🖼️ 見出し画像の自動アップロード（メニュー突破作戦！）
-# 🖼️ 見出し画像の自動アップロード（Shift+Tab スナイパー作戦！）
+# 🖼️ 見出し画像の自動アップロード（Shift+Tab ＆ JS直撃 ＆ 待ち伏せ保存作戦！）
+# 🖼️ 見出し画像の自動アップロード（Shift+Tab ＆ JS直撃 ＆ 待ち伏せ保存作戦！）
+# 🖼️ 見出し画像の自動アップロード（Shift+Tab ＆ JS直撃 ＆ 待ち伏せ保存作戦！）
             if os.path.exists("default_header.png"):
                 print("🖼️ 見出し画像をセットするよ...")
                 try:
@@ -128,28 +129,77 @@ def main():
                     page.keyboard.press("Enter")
                     time.sleep(2) # メニューがふわっと出るのを待つ
                     
-                    print("👉 2. メニューから「アップロード」を探すか、隠しタグを撃つよ！")
+                    print("👉 2. メニューから「アップロード」を【JavaScript】で強制クリックするよ！")
                     try:
-                        with page.expect_file_chooser(timeout=4000) as fc_info:
-                            # 「アップロード」という文字が含まれる要素を幅広く探してクリック！
-                            page.locator('text="画像をアップロード", text="アップロード", text="PCからアップロード", text="画像を選択", text="ライブラリ"').first.click(timeout=3000)
+                        with page.expect_file_chooser(timeout=5000) as fc_info:
+                            # Playwrightを使わず、JSで直接クリックさせてガタガタを100%防ぐ！
+                            page.evaluate("""
+                                () => {
+                                    const xpath = "//*[contains(text(), '画像をアップロード') or contains(text(), 'ライブラリ')]";
+                                    const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                                    const element = result.singleNodeValue;
+                                    if (element) {
+                                        const clickable = element.closest('button, label, [role="button"]') || element;
+                                        clickable.click();
+                                    } else {
+                                        throw new Error("アップロードボタンが見つかりませんでした");
+                                    }
+                                }
+                            """)
                         
                         file_chooser = fc_info.value
                         file_chooser.set_files("default_header.png")
+                        print("✅ 画像ファイルをセットしたよ！アップロード完了を待ちます...")
                     except Exception as e:
-                        print("⚠️ メニューのクリックに失敗。直接 input[type=file] へのセットを試します！")
-                        # メニューが開いたことで inputタグが有効になっている可能性に賭ける！
+                        print(f"⚠️ JSクリックに失敗。直接 input[type=file] へのセットを試します！: {e}")
                         page.locator('input[type="file"]').first.set_input_files("default_header.png", timeout=3000)
                     
-                    time.sleep(4) # 画像のアップロードとトリミング画面の表示を待つ
-                    
-                    print("👉 3. トリミング画面の保存ボタンを押すよ！")
-                    save_btn = page.locator('button:has-text("保存"), button:has-text("適用"), button:has-text("完了"), button:has-text("登録")').first
-                    if save_btn.is_visible(timeout=3000):
-                        save_btn.click()
+                    # 💡 【大改善】アップロードが終わって「保存」ボタンが出現するまで最大15秒待機する！
+# 💡 【大改善】「下書き保存」を誤クリックしないよう、モーダルの中の「保存」をJSで狙い撃ち！
+                    print("👉 3. トリミング画面の保存ボタンをJSで強制クリックするよ！")
+                    try:
+                        # 画像のアップロード完了を安全に5秒スリープして待つ
+                        time.sleep(5)
+                        
+                        # 💡 JSでモーダル（ダイアログ）の中の「保存」を確実にクリックし、結果をPython側に返す！
+                        click_result = page.evaluate("""
+                            () => {
+                                // 1. トリミング画面のモーダル要素自体を見つける
+                                const modal = document.querySelector('[role="dialog"], [class*="modal" i], .o-modal, .m-modal, [class*="dialog" i]');
+                                if (!modal) {
+                                    return "❌ 【エラー】切り抜きモーダル自体が画面上に見つかりませんでした！";
+                                }
+                                
+                                // 2. モーダルの中にあるすべての要素（button, div, spanなど）を取得
+                                const elements = Array.from(modal.querySelectorAll('button, [role="button"], div, span'));
+                                
+                                // 3. テキストが完全に「保存」だけの要素を探す（「下書き保存」を完全スルー）
+                                const saveBtn = elements.find(el => {
+                                    // 子要素を持たない末端の要素で、中身が完全に「保存」のもの
+                                    return el.children.length === 0 && el.textContent.trim() === '保存';
+                                });
+                                
+                                if (saveBtn) {
+                                    // クリック可能な親要素を遡る（buttonタグなどがあればそれ、無ければ自身）
+                                    const clickable = saveBtn.closest('button, [role="button"]') || saveBtn;
+                                    clickable.click();
+                                    return `✅ モーダル内の「保存」をクリックしました！ (Tag: ${clickable.tagName})`;
+                                } else {
+                                    return "❌ 【エラー】モーダルの中に「保存」という文字のボタンが見つかりませんでした。";
+                                }
+                            }
+                        """)
+                        
+                        # 🔍 JSが実際にどう動いたかをターミナルに表示！
+                        print(f"🕵️‍♂️ JSの実行結果: {click_result}")
+                        
+                        # 💡 【超重要】モーダル画面自体が「完全に消える」まで待機！
+                        print("⏳ トリミング画面が閉じるのを待っています...")
+                        page.locator('[role="dialog"], [class*="modal" i], .o-modal, .m-modal').wait_for(state="hidden", timeout=10000)
+                        
                         print("✅ 見出し画像の設定成功！！（完全勝利！）")
-                    else:
-                        print("⚠️ 保存ボタンが見つからなかったけど、アップロード自体は完了してるかも！")
+                    except Exception as e:
+                        print(f"⚠️ 保存ボタンのクリックでエラー: {e}")
                     time.sleep(2)
                     
                 except Exception as e:
