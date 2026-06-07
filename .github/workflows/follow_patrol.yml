@@ -1,0 +1,39 @@
+name: Mirintya Follow Patrol
+
+on:
+  schedule:
+    # 6時間おきに毎日4回パトロールを実行するよ！
+    # （日本時間：午前9時、午後3時、午後9時、午前3時）
+    # UTC（世界標準時）: 00:00, 06:00, 12:00, 18:00
+    - cron: '0 0,6,12,18 * * *'
+  workflow_dispatch: # 手動でいつでも実行できるボタン
+
+jobs:
+  patrol:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright requests
+          playwright install chromium
+
+      - name: Create state.json from Secret
+        run: |
+          # 記事投稿と同じCookie情報を再利用するよ！
+          echo '${{ secrets.NOTE_STATE_JSON }}' > state.json
+
+      - name: Run follow patrol script
+        env:
+          GAS_URL: ${{ secrets.GAS_URL }}
+        run: |
+          python follow_bot.py
