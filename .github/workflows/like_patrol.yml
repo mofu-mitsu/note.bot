@@ -1,0 +1,35 @@
+name: Mirintya Like Patrol
+
+on:
+  schedule:
+    # 4時間おきに実行（1日6回）
+    # UTC（世界標準時）: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00
+    - cron: '0 0,4,8,12,16,20 * * *'
+  workflow_dispatch:
+
+jobs:
+  patrol:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright requests
+          playwright install chromium
+
+      - name: Create state.json from Secret
+        run: |
+          echo '${{ secrets.NOTE_STATE_JSON }}' > state.json
+
+      - name: Run like patrol script
+        run: |
+          python like_bot.py
