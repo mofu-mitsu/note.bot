@@ -319,7 +319,7 @@ def main():
             print(f"⚠️ GASとの通信エラー: {e}")
             mutual_check = []
 
-        if random.random() < 0.30 and len(mutual_check) > 0:
+        if random.random() < 0.20 and len(mutual_check) > 0:
             user = random.choice(mutual_check)
             print(f"🦋 今日の気まぐれリプ対象は {user['name']} (@{user['id']}) ちゃんに決定！")
             
@@ -413,7 +413,7 @@ def main():
             else:
                 print("⚠️ 相手の最新記事が見つかりませんでした。")
         else:
-            print("\n💤 今日の気まぐれ自発リプはお休みします。（確率 30% の壁）")
+            print("\n💤 今日の気まぐれ自発リプはお休みします。（確率 20% の壁）")
 
         print("\n🎉 今日のAIリプパトロール完了！！")
         browser.close()
