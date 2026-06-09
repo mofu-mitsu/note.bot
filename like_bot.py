@@ -9,7 +9,7 @@ from playwright.sync_api import sync_playwright
 NOTE_ID = "mirin_chuuu"
 
 # みりんてゃが気まぐれに見に行くハッシュタグのリスト！
-HASHTAGS = ["地雷系", "ぬい撮り", "可愛い", "個人サイト", "ネット考古学", "AI"]
+HASHTAGS = ["地雷系", "自己紹介", "bot", "個人開発","ぬい撮り", "可愛い", "個人サイト", "ネット考古学", "AI"]
 
 def main():
     with sync_playwright() as p:
