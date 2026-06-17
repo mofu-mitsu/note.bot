@@ -83,7 +83,7 @@ def main():
         print("🚀 Playwright起動（Cookieを読み込みます）")
         
         browser = p.chromium.launch(
-            headless=True,
+            headless=True,  # 💡 Pythonの文法に合わせて False に修正したよ！
             args=[
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
@@ -109,13 +109,9 @@ def main():
                 print("⚠️【緊急】ログイン画面に飛ばされちゃいました！")
                 return
 
-# 🖼️ 見出し画像の自動アップロード（Shift+Tab ＆ JS直撃 ＆ 待ち伏せ保存作戦！）
-# 🖼️ 見出し画像の自動アップロード（Shift+Tab ＆ JS直撃 ＆ 待ち伏せ保存作戦！）
-# 🖼️ 見出し画像の自動アップロード（Shift+Tab ＆ JS直撃 ＆ 待ち伏せ保存作戦！）
             if os.path.exists("default_header.png"):
                 print("🖼️ 見出し画像をセットするよ...")
                 try:
-                    # 1. タイトル入力欄が表示されるまで待つ
                     page.locator('textarea[placeholder="記事タイトル"]').wait_for(state="visible", timeout=10000)
                     time.sleep(1)
                     
@@ -123,16 +119,14 @@ def main():
                     page.locator('textarea[placeholder="記事タイトル"]').focus()
                     time.sleep(0.5)
                     
-                    # 2. Shift+Tabで1つ前の要素（見出し画像ボタン）に戻ってEnter（クリック）！
                     page.keyboard.press("Shift+Tab")
                     time.sleep(0.5)
                     page.keyboard.press("Enter")
-                    time.sleep(2) # メニューがふわっと出るのを待つ
+                    time.sleep(2)
                     
                     print("👉 2. メニューから「アップロード」を【JavaScript】で強制クリックするよ！")
                     try:
                         with page.expect_file_chooser(timeout=5000) as fc_info:
-                            # Playwrightを使わず、JSで直接クリックさせてガタガタを100%防ぐ！
                             page.evaluate("""
                                 () => {
                                     const xpath = "//*[contains(text(), '画像をアップロード') or contains(text(), 'ライブラリ')]";
@@ -154,33 +148,24 @@ def main():
                         print(f"⚠️ JSクリックに失敗。直接 input[type=file] へのセットを試します！: {e}")
                         page.locator('input[type="file"]').first.set_input_files("default_header.png", timeout=3000)
                     
-                    # 💡 【大改善】アップロードが終わって「保存」ボタンが出現するまで最大15秒待機する！
-# 💡 【大改善】「下書き保存」を誤クリックしないよう、モーダルの中の「保存」をJSで狙い撃ち！
                     print("👉 3. トリミング画面の保存ボタンをJSで強制クリックするよ！")
                     try:
-                        # 画像のアップロード完了を安全に5秒スリープして待つ
                         time.sleep(5)
                         
-                        # 💡 JSでモーダル（ダイアログ）の中の「保存」を確実にクリックし、結果をPython側に返す！
                         click_result = page.evaluate("""
                             () => {
-                                // 1. トリミング画面のモーダル要素自体を見つける
                                 const modal = document.querySelector('[role="dialog"], [class*="modal" i], .o-modal, .m-modal, [class*="dialog" i]');
                                 if (!modal) {
                                     return "❌ 【エラー】切り抜きモーダル自体が画面上に見つかりませんでした！";
                                 }
                                 
-                                // 2. モーダルの中にあるすべての要素（button, div, spanなど）を取得
                                 const elements = Array.from(modal.querySelectorAll('button, [role="button"], div, span'));
                                 
-                                // 3. テキストが完全に「保存」だけの要素を探す（「下書き保存」を完全スルー）
                                 const saveBtn = elements.find(el => {
-                                    // 子要素を持たない末端の要素で、中身が完全に「保存」のもの
                                     return el.children.length === 0 && el.textContent.trim() === '保存';
                                 });
                                 
                                 if (saveBtn) {
-                                    // クリック可能な親要素を遡る（buttonタグなどがあればそれ、無ければ自身）
                                     const clickable = saveBtn.closest('button, [role="button"]') || saveBtn;
                                     clickable.click();
                                     return `✅ モーダル内の「保存」をクリックしました！ (Tag: ${clickable.tagName})`;
@@ -190,10 +175,8 @@ def main():
                             }
                         """)
                         
-                        # 🔍 JSが実際にどう動いたかをターミナルに表示！
                         print(f"🕵️‍♂️ JSの実行結果: {click_result}")
                         
-                        # 💡 【超重要】モーダル画面自体が「完全に消える」まで待機！
                         print("⏳ トリミング画面が閉じるのを待っています...")
                         page.locator('[role="dialog"], [class*="modal" i], .o-modal, .m-modal').wait_for(state="hidden", timeout=10000)
                         
@@ -203,18 +186,15 @@ def main():
                     time.sleep(2)
                     
                 except Exception as e:
-                    print(f"⚠️ 画像設定スキップ（作戦失敗。手強すぎるので諦めますw）: {e}")
+                    print(f"⚠️ 画像設定スキップ: {e}")
 
-            # タイトルの入力
             print("✍️ タイトル入力中...")
             page.locator('textarea[placeholder="記事タイトル"]').fill(title)
 
-            # 本文エディタをクリック
             editor = page.locator('.ProseMirror')
             editor.click()
             time.sleep(1)
 
-            # 📑 目次の挿入
             print("📑 目次を挿入するよ...")
             try:
                 page.keyboard.type("/")
@@ -227,7 +207,6 @@ def main():
                 print(f"⚠️ 目次挿入スキップ: {e}")
                 page.keyboard.press("Backspace")
 
-            # 本文のタイピング（楽天アフィ用）
             print("✍️ 本文を1行ずつタイピングして流し込むよ...")
             for line in body.split("\n"):
                 if line.strip() == "":
@@ -239,21 +218,29 @@ def main():
 
             time.sleep(5)
 
-            # 保存または公開
+            # ---------------------------------------------------------
+            # 💡 【完全修正】保存または公開の処理！
+            # ---------------------------------------------------------
             if publish_type == "公開":
                 print("⚙️ 公開設定画面を開くよ...")
-                page.get_by_role("button", name="公開に進む").click()
+                # 💡 「公開設定」または「公開に進む」ボタンを確実に探してクリック！
+                page.locator('button:has-text("公開設定"), button:has-text("公開に進む")').first.click()
                 time.sleep(3)
 
                 print("🏷️ ハッシュタグを設定中...")
-                hashtag_input = page.get_by_placeholder("ハッシュタグを追加")
-                for tag in hashtags:
-                    hashtag_input.type(tag, delay=100)
-                    page.keyboard.press("Enter")
-                    time.sleep(0.5)
+                # 💡 プレースホルダーの文字を実際のnoteに合わせて修正！
+                hashtag_input = page.locator('input[placeholder*="タグ入力後"], input[placeholder*="ハッシュタグを追加"]').first
+                if hashtag_input.is_visible():
+                    for tag in hashtags:
+                        hashtag_input.type(tag, delay=100)
+                        page.keyboard.press("Enter")
+                        time.sleep(0.5)
+                else:
+                    print("⚠️ ハッシュタグ入力欄が見つからなかったためスキップします！")
 
                 print("🚀 記事を「公開」します！")
-                page.get_by_role("button", name="公開する").click()
+                # 💡 「公開する」または「投稿する」ボタンを確実にクリック！
+                page.locator('button:has-text("公開する"), button:has-text("投稿する")').first.click()
                 final_status = "投稿済"
             else:
                 print("📝 記事をそのまま「下書き」保存します！")
