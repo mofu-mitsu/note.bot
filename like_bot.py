@@ -15,9 +15,13 @@ def main():
     with sync_playwright() as p:
         print("💕 いいね（スキ）パトロールBot起動！")
         
-        # 💻 ローカルテスト時はheadless=False、GitHub Actions時はTrue！
+        # 💻 GitHub Actions等の環境に合わせてUser-Agentを人間っぽく偽装する（Bot弾き対策）
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(storage_state="state.json", viewport={"width": 1280, "height": 800})
+        context = browser.new_context(
+            storage_state="state.json", 
+            viewport={"width": 1280, "height": 800},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
         page = context.new_page()
 
         target_note_urls = []
@@ -28,31 +32,28 @@ def main():
         print("📥 お知らせ（ベルマーク）を開いて、スキしてくれた人を探します...")
         try:
             page.goto("https://note.com/")
-            page.wait_for_load_state("networkidle")
+            page.wait_for_load_state("domcontentloaded")
             time.sleep(3)
             
-            # 🔔 note of ヘッダーにある本物の通知マークをクリック！
-            bell_btn = page.locator('a[href="/notifications"], button[aria-label*="お知らせ"], button[aria-label*="通知"], .o-headerNotification__icon').first
-            if bell_btn.is_visible():
+            # 💡 【魔法1】ベルマークが表示されるまで、最大10秒間じっと待つ！
+            bell_selector = 'a[href="/notifications"], button[aria-label*="お知らせ"], button[aria-label*="通知"], .o-headerNotification__icon'
+            
+            try:
+                page.wait_for_selector(bell_selector, state="visible", timeout=10000)
+                bell_btn = page.locator(bell_selector).first
                 bell_btn.click()
-                time.sleep(4) # お知らせ画面がしっかり描画されるのを待つ
+                time.sleep(4) # お知らせ画面が描画されるのを待つ
                 
-                # 💡 f-stringを使わず安全に置換！
                 js_code = """
                     () => {
                         const urlnames = [];
-                        
-                        // 1. 画面の中から「最新の通知は以上です」というテキストが含まれる「お知らせの箱」を特定！
                         const popover = Array.from(document.querySelectorAll('div, ul, [role="dialog"], section')).find(el => {
                             const text = el.textContent || '';
                             return text.includes('最新の通知は以上です') && el.innerHTML.length < 15000;
                         });
                         
-                        if (!popover) {
-                            return urlnames;
-                        }
+                        if (!popover) return urlnames;
                         
-                        // 2. そのポップアップの箱の「内側だけ」から、スキしてくれた人のIDをスナイプ！
                         const items = Array.from(popover.querySelectorAll('li, div'));
                         for (const item of items) {
                             const text = item.textContent || '';
@@ -60,12 +61,9 @@ def main():
                                 const links = Array.from(item.querySelectorAll('a'));
                                 for (const link of links) {
                                     let path = link.pathname;
-                                    if (path.endsWith('/')) {
-                                        path = path.slice(0, -1);
-                                    }
+                                    if (path.endsWith('/')) path = path.slice(0, -1);
                                     const parts = path.split('/');
                                     
-                                    // /sorake のようなプロフリンク（長さ2）だけを抽出！
                                     if (parts.length === 2) {
                                         const urlname = parts[1];
                                         if (urlname && urlname !== 'n' && urlname !== '__NOTE_ID__' && !urlname.includes('intent') && urlname !== 'notifications') {
@@ -82,39 +80,35 @@ def main():
                 """.replace("__NOTE_ID__", NOTE_ID)
 
                 liker_urlnames = page.evaluate(js_code)
-                
                 print(f"👀 通知から、最近スキしてくれた {len(liker_urlnames)} 人を見つけました！")
                 
-                # その人たちのプロフィール画面に行って、最新記事を1件取得
-                for urlname in liker_urlnames[:3]: # 最大3人にスキ返し
+                for urlname in liker_urlnames[:3]:
                     page.goto(f"https://note.com/{urlname}")
                     page.wait_for_load_state("networkidle")
                     time.sleep(2)
                     try:
-                        # 自分の記事を除外するフィルタをJS側に追加！
                         user_notes = page.evaluate("""
                             (myId) => {
                                 const urls = [];
                                 const links = document.querySelectorAll('a[href*="/n/"]');
                                 for (const link of links) {
-                                    if (!link.href.includes('/' + myId + '/') && !urls.includes(link.href)) {
-                                        urls.push(link.href);
-                                    }
+                                    if (!link.href.includes('/' + myId + '/') && !urls.includes(link.href)) urls.push(link.href);
                                 }
                                 return urls;
                             }
                         """, NOTE_ID)
                         if user_notes:
-                            target_note_urls.append(user_notes[0]) # 最新記事
+                            target_note_urls.append(user_notes[0])
                     except Exception as e:
-                        print(f"⚠️ {urlname} さんの記事取得をスキップしました: {e}")
-            else:
-                print("⚠️ ベルマーク（お知らせボタン）が見つからなかったよ！")
+                        pass
+            except Exception as e:
+                print("⚠️ ベルマークが見つからなかったよ！もしかして state.json のログイン期限が切れてるかも？🤔")
+
         except Exception as e:
             print(f"⚠️ 通知の取得に失敗しました: {e}")
 
         # -----------------------------------------------------------------
-        # 2. 🏠 タイムライン巡回！（ホーム画面からフォロワーさんの最新記事を特定）
+        # 2. 🏠 タイムライン巡回！
         # -----------------------------------------------------------------
         print("\n📥 ホーム画面（タイムライン）から、フォロワーさんの最新記事を探します...")
         try:
@@ -128,9 +122,7 @@ def main():
                     const links = document.querySelectorAll('a[href*="/n/"]');
                     for (const link of links) {
                         const href = link.href;
-                        if (href.includes("note.com") && !href.includes('/' + myId + '/') && !urls.includes(href)) {
-                            urls.push(href);
-                        }
+                        if (href.includes("note.com") && !href.includes('/' + myId + '/') && !urls.includes(href)) urls.push(href);
                     }
                     return urls;
                 }
@@ -141,9 +133,8 @@ def main():
         except Exception as e:
             print(f"⚠️ ホーム画面の取得に失敗しました: {e}")
 
-
         # -----------------------------------------------------------------
-        # 3. 🦋 気まぐれハッシュタグ巡回！（物理画面から取得）
+        # 3. 🦋 気まぐれハッシュタグ巡回！
         # -----------------------------------------------------------------
         selected_tag = random.choice(HASHTAGS)
         print(f"\n🦋 今日の気まぐれ巡回ハッシュタグは「#{selected_tag}」に決定！")
@@ -159,9 +150,7 @@ def main():
                     const links = document.querySelectorAll('a[href*="/n/"]');
                     for (const link of links) {
                         const href = link.href;
-                        if (href.includes("note.com") && !href.includes('/' + myId + '/') && !urls.includes(href)) {
-                            urls.push(href);
-                        }
+                        if (href.includes("note.com") && !href.includes('/' + myId + '/') && !urls.includes(href)) urls.push(href);
                     }
                     return urls;
                 }
@@ -172,7 +161,6 @@ def main():
         except Exception as e:
             print(f"⚠️ ハッシュタグ検索に失敗しました: {e}")
 
-        # 重複を削除
         target_note_urls = list(set(target_note_urls))
         print(f"\n🎯 今回スキしにいく記事は全部で {len(target_note_urls)} 件だよ！")
 
@@ -186,52 +174,57 @@ def main():
                 page.wait_for_load_state("networkidle")
                 time.sleep(3)
                 
-                # 💡 【JSエラーを100%修正！】
-                # 内部の「#」コメントを完全に削除して、文法エラーを解決しました！
+                # 下までスクロールしてボタンを確実に画面内に描画させる
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+                time.sleep(1)
+                
+                # 💡 【魔法2】JS側では「クリックすべきボタンの番号」を探すだけにする！
                 result_data = page.evaluate("""
                     () => {
                         const buttons = Array.from(document.querySelectorAll('button'));
                         
-                        const debugList = buttons.map(b => ({
-                            tag: b.tagName,
-                            className: b.className,
-                            label: b.getAttribute('aria-label'),
-                            pressed: b.getAttribute('aria-pressed')
-                        })).filter(b => (b.className || '').includes('Like') || (b.className || '').includes('like') || (b.label || '').includes('スキ'));
-                        
-                        const likeBtn = buttons.find(b => {
+                        const likeBtnIndex = buttons.findIndex(b => {
                             const className = b.className || '';
                             const label = b.getAttribute('aria-label') || '';
                             return className.includes('Like') || className.includes('like') || label.includes('スキ');
                         });
                         
-                        if (likeBtn) {
+                        if (likeBtnIndex !== -1) {
+                            const likeBtn = buttons[likeBtnIndex];
                             const isPressed = likeBtn.getAttribute('aria-pressed') === 'true';
                             const isCancelLabel = (likeBtn.getAttribute('aria-label') || '').includes('取り消す');
                             
                             if (isPressed || isCancelLabel) {
-                                return { status: "already_liked", debug: debugList };
+                                return { status: "already_liked" };
                             }
-                            
-                            likeBtn.click();
-                            return { status: "clicked", debug: debugList };
+                            return { status: "found", index: likeBtnIndex };
                         }
-                        return { status: "not_found", debug: debugList };
+                        return { status: "not_found" };
                     }
                 """)
                 
                 status = result_data.get("status")
-                debug_list = result_data.get("debug", [])
                 
-                if status == "clicked":
+                if status == "found":
+                    btn_index = result_data.get("index")
+                    
+                    # 💡 【魔法3】Python側から「本物のクリック」を発動！
+                    # 画面内にボタンをスクロールさせてからクリックするよ！
+                    page.evaluate(f"document.querySelectorAll('button')[{btn_index}].scrollIntoView({{behavior: 'smooth', block: 'center'}})")
+                    time.sleep(1)
+                    
+                    # Playwrightの物理クリック（これでReactにも完全に通信が飛ぶ！）
+                    page.locator('button').nth(btn_index).click()
+                    
+                    # 💡 サーバーに通信が飛ぶのを待つために3秒待機！
+                    time.sleep(3)
                     print("✅ スキ♡ しました！")
+                    
                 elif status == "already_liked":
                     print("👍 すでにスキ♡ 済みでした！")
                 else:
-                    print(f"⚠️ スキボタンが見つかりませんでした… (検出したボタン候補: {debug_list})")
+                    print(f"⚠️ スキボタンが見つかりませんでした…")
                     
-                time.sleep(2)
-                
             except Exception as e:
                 print(f"⚠️ 記事の訪問中にエラー: {e}")
 
