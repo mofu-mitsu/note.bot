@@ -15,7 +15,7 @@ def main():
     with sync_playwright() as p:
         print("💕 いいね（スキ）パトロールBot起動！")
         
-        # 💻 GitHub Actions等の環境に合わせてUser-Agentを人間っぽく偽装する（Bot弾き対策）
+        # 💻 GitHub Actions等の環境に合わせてUser-Agentを人間っぽく偽装する
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             storage_state="state.json", 
@@ -27,22 +27,67 @@ def main():
         target_note_urls = []
 
         # -----------------------------------------------------------------
-        # 1. 💌 スキ返し！（🔔ベルマークから通知を開いて読み取る！）
+        # 1. 💌 スキ返し！（🔔ベルマークを探す超・強化版！）
         # -----------------------------------------------------------------
         print("📥 お知らせ（ベルマーク）を開いて、スキしてくれた人を探します...")
         try:
             page.goto("https://note.com/")
-            page.wait_for_load_state("domcontentloaded")
-            time.sleep(3)
+            page.wait_for_load_state("networkidle")
+            print("⏳ 画面が完全に読み込まれるのを待ちます...")
+            time.sleep(5)
             
-            # 💡 【魔法1】ベルマークが表示されるまで、最大10秒間じっと待つ！
-            bell_selector = 'a[href="/notifications"], button[aria-label*="お知らせ"], button[aria-label*="通知"], .o-headerNotification__icon'
+            # 💡 【ジェミの執念の探索魔法】
+            # 赤いバッジで名前や構造が変わっていても、画面中をしらみつぶしに探して絶対にクリックするJS！
+            click_status = page.evaluate("""
+                () => {
+                    const elements = Array.from(document.querySelectorAll('button, a, [role="button"], div[class*="icon"]'));
+                    
+                    // 1. まず「通知」「未読」「お知らせ」という言葉を持つボタンを探す
+                    const bellByLabel = elements.find(el => {
+                        const label = el.getAttribute('aria-label') || '';
+                        return label.includes('通知') || label.includes('お知らせ') || label.includes('未読') || label.includes('ベル');
+                    });
+                    
+                    if (bellByLabel) {
+                        bellByLabel.click();
+                        return "clicked_by_label";
+                    }
+                    
+                    // 2. クラス名に「notification」「notice」「bell」を含むものを探す
+                    const bellByClass = elements.find(el => {
+                        const className = (el.className || '').toString().toLowerCase();
+                        return className.includes('notification') || className.includes('notice') || className.includes('bell');
+                    });
+                    
+                    if (bellByClass) {
+                        bellByClass.click();
+                        return "clicked_by_class";
+                    }
+                    
+                    // 3. 最終手段：ヘッダーの中にある「SVG（アイコン）を持っていて、画像（プロフィール）ではない」要素をクリック！
+                    // （赤い数字バッジがついていても、数字を無視してアイコンだけを特定！）
+                    const header = document.querySelector('header');
+                    if (header) {
+                        const svgBtns = Array.from(header.querySelectorAll('button, a')).filter(b => {
+                            const hasSvg = b.querySelector('svg');
+                            const hasImg = b.querySelector('img');
+                            const text = b.textContent.trim().replace(/[0-9+]/g, ''); // 赤いバッジの数字は無視！
+                            return hasSvg && !hasImg && text === '';
+                        });
+                        
+                        if (svgBtns.length > 0) {
+                            svgBtns[0].click(); // 大抵1つめが通知ボタン
+                            return "clicked_by_svg_guess";
+                        }
+                    }
+                    
+                    return "not_found";
+                }
+            """)
             
-            try:
-                page.wait_for_selector(bell_selector, state="visible", timeout=10000)
-                bell_btn = page.locator(bell_selector).first
-                bell_btn.click()
-                time.sleep(4) # お知らせ画面が描画されるのを待つ
+            if click_status != "not_found":
+                print(f"🔔 ベルマークをポチッと押したよ！(発見方法: {click_status})")
+                time.sleep(4) # ポップアップが完全に描画されるのを待つ
                 
                 js_code = """
                     () => {
@@ -101,11 +146,12 @@ def main():
                             target_note_urls.append(user_notes[0])
                     except Exception as e:
                         pass
-            except Exception as e:
-                print("⚠️ ベルマークが見つからなかったよ！もしかして state.json のログイン期限が切れてるかも？🤔")
+            else:
+                print("⚠️ ベルマークが見つからなかったよ！でもタイムライン巡回には進むね！")
 
         except Exception as e:
             print(f"⚠️ 通知の取得に失敗しました: {e}")
+
 
         # -----------------------------------------------------------------
         # 2. 🏠 タイムライン巡回！
@@ -174,11 +220,9 @@ def main():
                 page.wait_for_load_state("networkidle")
                 time.sleep(3)
                 
-                # 下までスクロールしてボタンを確実に画面内に描画させる
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
                 time.sleep(1)
                 
-                # 💡 【魔法2】JS側では「クリックすべきボタンの番号」を探すだけにする！
                 result_data = page.evaluate("""
                     () => {
                         const buttons = Array.from(document.querySelectorAll('button'));
@@ -207,16 +251,10 @@ def main():
                 
                 if status == "found":
                     btn_index = result_data.get("index")
-                    
-                    # 💡 【魔法3】Python側から「本物のクリック」を発動！
-                    # 画面内にボタンをスクロールさせてからクリックするよ！
                     page.evaluate(f"document.querySelectorAll('button')[{btn_index}].scrollIntoView({{behavior: 'smooth', block: 'center'}})")
                     time.sleep(1)
                     
-                    # Playwrightの物理クリック（これでReactにも完全に通信が飛ぶ！）
                     page.locator('button').nth(btn_index).click()
-                    
-                    # 💡 サーバーに通信が飛ぶのを待つために3秒待機！
                     time.sleep(3)
                     print("✅ スキ♡ しました！")
                     
