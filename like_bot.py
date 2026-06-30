@@ -27,7 +27,7 @@ def main():
         target_note_urls = []
 
         # -----------------------------------------------------------------
-        # 1. 💌 スキ返し！（🔔ヘッダーの中だけでベルマークを探す！）
+        # 1. 💌 スキ返し！（🔔物理座標でベルマークを押して、中身を直接読む！）
         # -----------------------------------------------------------------
         print("📥 お知らせ（ベルマーク）を開いて、スキしてくれた人を探します...")
         try:
@@ -36,85 +36,73 @@ def main():
             print("⏳ 画面が完全に読み込まれるのを待ちます...")
             time.sleep(5)
             
-            # 💡 【ジェミの反省魔法】探索範囲を「ヘッダー」の中だけに限定！
+            # ベルマークを座標で特定してクリック
             click_status = page.evaluate("""
                 () => {
-                    // ヘッダー（一番上の帯）だけを取得！
                     const header = document.querySelector('header');
                     if (!header) return "no_header";
 
-                    // ヘッダーの中にあるボタンやリンクだけを抽出！
                     const elements = Array.from(header.querySelectorAll('button, a, [role="button"]'));
-                    
-                    // 1. 「通知」「未読」「お知らせ」という言葉を持つボタンを探す
-                    const bellByLabel = elements.find(el => {
-                        const label = el.getAttribute('aria-label') || '';
-                        return label.includes('通知') || label.includes('お知らせ') || label.includes('未読') || label.includes('ベル');
+                    const rightBtns = elements.filter(b => {
+                        const rect = b.getBoundingClientRect();
+                        return rect.left > window.innerWidth / 2 && rect.width > 0 && rect.height > 0;
                     });
                     
-                    if (bellByLabel) {
-                        bellByLabel.click();
-                        return "clicked_by_label";
+                    const profileBtn = rightBtns.find(b => b.querySelector('img'));
+                    if (profileBtn) {
+                        const profileX = profileBtn.getBoundingClientRect().left;
+                        const candidates = rightBtns.filter(b => {
+                            const rect = b.getBoundingClientRect();
+                            return rect.left < profileX && b.querySelector('svg') && !b.textContent.includes('投稿');
+                        });
+                        if (candidates.length > 0) {
+                            candidates.sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left);
+                            candidates[0].click();
+                            return "clicked_by_geometry (プロフィールの左隣)";
+                        }
                     }
                     
-                    // 2. クラス名に「notification」などを含むものを探す
-                    const bellByClass = elements.find(el => {
-                        const className = (el.className || '').toString().toLowerCase();
-                        return className.includes('notification') || className.includes('notice') || className.includes('bell');
-                    });
-                    
-                    if (bellByClass) {
-                        bellByClass.click();
-                        return "clicked_by_class";
-                    }
-                    
-                    // 3. 最終手段：アイコンだけのボタン（数字バッジがあっても無視）
-                    const svgBtns = elements.filter(b => {
-                        const hasSvg = b.querySelector('svg');
-                        const hasImg = b.querySelector('img');
-                        const text = b.textContent.trim().replace(/[0-9+]/g, ''); // 赤い数字を無視
-                        return hasSvg && !hasImg && text === '';
+                    const svgBtns = rightBtns.filter(b => {
+                        return b.querySelector('svg') && !b.querySelector('img') && !b.textContent.includes('投稿');
                     });
                     
                     if (svgBtns.length > 0) {
-                        svgBtns[0].click(); 
-                        return "clicked_by_svg_guess";
+                        svgBtns[svgBtns.length - 1].click();
+                        return "clicked_by_right_svg_guess (右端のアイコン)";
                     }
-                    
                     return "not_found";
                 }
             """)
             
-            if click_status != "not_found" and click_status != "no_header":
+            if "clicked" in click_status:
                 print(f"🔔 ベルマークをポチッと押したよ！(発見方法: {click_status})")
                 time.sleep(4) # ポップアップが完全に描画されるのを待つ
                 
+                # 💡 【ジェミの超・解読魔法】
+                # 「最新の通知は以上です」を探すのをやめて、画面内の「スキしました」という塊を直接狙い撃ち！
                 js_code = """
                     () => {
                         const urlnames = [];
-                        const popover = Array.from(document.querySelectorAll('div, ul, [role="dialog"], section')).find(el => {
+                        
+                        // 画面内の li や div の中から、1つの通知項目としてのサイズ（500文字未満）のものを探す
+                        const items = Array.from(document.querySelectorAll('li, div')).filter(el => {
                             const text = el.textContent || '';
-                            return text.includes('最新の通知は以上です') && el.innerHTML.length < 15000;
+                            return (text.includes('スキしました') || text.includes('スキをしました')) && text.length > 0 && text.length < 500;
                         });
                         
-                        if (!popover) return urlnames;
-                        
-                        const items = Array.from(popover.querySelectorAll('li, div'));
                         for (const item of items) {
-                            const text = item.textContent || '';
-                            if (text.includes('スキしました') || text.includes('スキをしました')) {
-                                const links = Array.from(item.querySelectorAll('a'));
-                                for (const link of links) {
-                                    let path = link.pathname;
-                                    if (path.endsWith('/')) path = path.slice(0, -1);
-                                    const parts = path.split('/');
-                                    
-                                    if (parts.length === 2) {
-                                        const urlname = parts[1];
-                                        if (urlname && urlname !== 'n' && urlname !== '__NOTE_ID__' && !urlname.includes('intent') && urlname !== 'notifications') {
-                                            if (!urlnames.includes(urlname)) {
-                                                urlnames.push(urlname);
-                                            }
+                            const links = Array.from(item.querySelectorAll('a'));
+                            for (const link of links) {
+                                let path = link.pathname;
+                                if (path.endsWith('/')) path = path.slice(0, -1);
+                                const parts = path.split('/');
+                                
+                                // プロフィールリンク (例: /ooeno) を抽出
+                                if (parts.length === 2) {
+                                    const urlname = parts[1];
+                                    if (urlname && urlname !== 'n' && urlname !== '__NOTE_ID__' && !urlname.includes('intent') && urlname !== 'notifications') {
+                                        if (!urlnames.includes(urlname)) {
+                                            urlnames.push(urlname);
                                         }
                                     }
                                 }
