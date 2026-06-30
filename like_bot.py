@@ -27,7 +27,7 @@ def main():
         target_note_urls = []
 
         # -----------------------------------------------------------------
-        # 1. 💌 スキ返し！（🔔ベルマークを探す超・強化版！）
+        # 1. 💌 スキ返し！（🔔ヘッダーの中だけでベルマークを探す！）
         # -----------------------------------------------------------------
         print("📥 お知らせ（ベルマーク）を開いて、スキしてくれた人を探します...")
         try:
@@ -36,13 +36,17 @@ def main():
             print("⏳ 画面が完全に読み込まれるのを待ちます...")
             time.sleep(5)
             
-            # 💡 【ジェミの執念の探索魔法】
-            # 赤いバッジで名前や構造が変わっていても、画面中をしらみつぶしに探して絶対にクリックするJS！
+            # 💡 【ジェミの反省魔法】探索範囲を「ヘッダー」の中だけに限定！
             click_status = page.evaluate("""
                 () => {
-                    const elements = Array.from(document.querySelectorAll('button, a, [role="button"], div[class*="icon"]'));
+                    // ヘッダー（一番上の帯）だけを取得！
+                    const header = document.querySelector('header');
+                    if (!header) return "no_header";
+
+                    // ヘッダーの中にあるボタンやリンクだけを抽出！
+                    const elements = Array.from(header.querySelectorAll('button, a, [role="button"]'));
                     
-                    // 1. まず「通知」「未読」「お知らせ」という言葉を持つボタンを探す
+                    // 1. 「通知」「未読」「お知らせ」という言葉を持つボタンを探す
                     const bellByLabel = elements.find(el => {
                         const label = el.getAttribute('aria-label') || '';
                         return label.includes('通知') || label.includes('お知らせ') || label.includes('未読') || label.includes('ベル');
@@ -53,7 +57,7 @@ def main():
                         return "clicked_by_label";
                     }
                     
-                    // 2. クラス名に「notification」「notice」「bell」を含むものを探す
+                    // 2. クラス名に「notification」などを含むものを探す
                     const bellByClass = elements.find(el => {
                         const className = (el.className || '').toString().toLowerCase();
                         return className.includes('notification') || className.includes('notice') || className.includes('bell');
@@ -64,28 +68,24 @@ def main():
                         return "clicked_by_class";
                     }
                     
-                    // 3. 最終手段：ヘッダーの中にある「SVG（アイコン）を持っていて、画像（プロフィール）ではない」要素をクリック！
-                    // （赤い数字バッジがついていても、数字を無視してアイコンだけを特定！）
-                    const header = document.querySelector('header');
-                    if (header) {
-                        const svgBtns = Array.from(header.querySelectorAll('button, a')).filter(b => {
-                            const hasSvg = b.querySelector('svg');
-                            const hasImg = b.querySelector('img');
-                            const text = b.textContent.trim().replace(/[0-9+]/g, ''); // 赤いバッジの数字は無視！
-                            return hasSvg && !hasImg && text === '';
-                        });
-                        
-                        if (svgBtns.length > 0) {
-                            svgBtns[0].click(); // 大抵1つめが通知ボタン
-                            return "clicked_by_svg_guess";
-                        }
+                    // 3. 最終手段：アイコンだけのボタン（数字バッジがあっても無視）
+                    const svgBtns = elements.filter(b => {
+                        const hasSvg = b.querySelector('svg');
+                        const hasImg = b.querySelector('img');
+                        const text = b.textContent.trim().replace(/[0-9+]/g, ''); // 赤い数字を無視
+                        return hasSvg && !hasImg && text === '';
+                    });
+                    
+                    if (svgBtns.length > 0) {
+                        svgBtns[0].click(); 
+                        return "clicked_by_svg_guess";
                     }
                     
                     return "not_found";
                 }
             """)
             
-            if click_status != "not_found":
+            if click_status != "not_found" and click_status != "no_header":
                 print(f"🔔 ベルマークをポチッと押したよ！(発見方法: {click_status})")
                 time.sleep(4) # ポップアップが完全に描画されるのを待つ
                 
@@ -147,7 +147,7 @@ def main():
                     except Exception as e:
                         pass
             else:
-                print("⚠️ ベルマークが見つからなかったよ！でもタイムライン巡回には進むね！")
+                print(f"⚠️ ベルマークが見つからなかったよ！(結果: {click_status}) でもタイムライン巡回には進むね！")
 
         except Exception as e:
             print(f"⚠️ 通知の取得に失敗しました: {e}")
