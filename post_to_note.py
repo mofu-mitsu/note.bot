@@ -218,15 +218,52 @@ def main():
                 page.keyboard.press("Backspace")
 
             print("✍️ 本文を1行ずつタイピングして流し込むよ...")
+
+            # 目次挿入後にフォーカスがメニュー側へ移ることがあるため、
+            # 本文入力の直前に必ず本文エディタへフォーカスを戻す。
+            editor = page.locator('.ProseMirror').first
+            editor.wait_for(state="visible", timeout=10000)
+            editor.click()
+            page.keyboard.press("Control+End")
+            time.sleep(0.5)
+
             for line in body.split("\n"):
                 if line.strip() == "":
                     page.keyboard.press("Enter")
                 else:
                     page.keyboard.type(line, delay=30)
                     page.keyboard.press("Enter")
-                time.sleep(1) 
+                time.sleep(0.3)
 
-            time.sleep(5)
+            # 「入力処理を実行した」だけではなく、note側のDOMに
+            # 実際に本文が入っているか確認する。
+            time.sleep(2)
+            try:
+                editor_text = editor.inner_text()
+            except Exception:
+                editor_text = ""
+
+            print(f"🔎 本文エディタ確認: {len(editor_text.strip())}文字")
+
+            if len(editor_text.strip()) == 0 and body.strip():
+                raise RuntimeError("本文入力後もProseMirrorが空です。本文入力を中断しました。")
+
+            # noteのメッセージモーダルが残っていると、公開設定ボタンや
+            # 投稿ボタンへのクリックがOverlayに遮られることがある。
+            message_overlay = page.locator('.MessageModal__overlay:visible')
+            if message_overlay.count() > 0:
+                print("⚠️ MessageModalが残っているため、閉じる処理を試します...")
+                close_candidates = message_overlay.locator(
+                    'button, [role="button"], [aria-label*="閉じる"], [aria-label*="close" i]'
+                )
+                if close_candidates.count() > 0:
+                    try:
+                        close_candidates.last.click(timeout=3000)
+                        time.sleep(1)
+                    except Exception:
+                        pass
+
+            time.sleep(2)
 
             # ---------------------------------------------------------
             # 💡 【完全修正】保存または公開の処理！
