@@ -5,6 +5,7 @@ import requests
 import random
 import urllib.parse
 import traceback
+import re
 from playwright.sync_api import sync_playwright
 
 GAS_URL = os.environ.get(
@@ -178,7 +179,17 @@ def main():
                         print(f"🕵️‍♂️ JSの実行結果: {click_result}")
                         
                         print("⏳ トリミング画面が閉じるのを待っています...")
-                        page.locator('[role="dialog"], [class*="modal" i], .o-modal, .m-modal').wait_for(state="hidden", timeout=10000)
+                        # noteは複数のdialog / ReactModalPortalをDOMに持つため、
+                        # 「すべてのdialogがhidden」を待つとstrict mode violationになる。
+                        # 実際の切り抜きモーダルだけを監視する。
+                        crop_modal = page.locator('.CropModal__content').first
+                        if crop_modal.count() > 0:
+                            try:
+                                crop_modal.wait_for(state="hidden", timeout=10000)
+                            except Exception:
+                                # 保存クリック自体は成功している可能性があるので、
+                                # 待機失敗だけで画像設定全体を失敗扱いにしない。
+                                print("⚠️ CropModalの終了待機をスキップしました（保存クリックは実行済み）")
                         
                         print("✅ 見出し画像の設定成功！！（完全勝利！）")
                     except Exception as e:
@@ -223,24 +234,123 @@ def main():
             # ---------------------------------------------------------
             if publish_type == "公開":
                 print("⚙️ 公開設定画面を開くよ...")
-                # 💡 「公開設定」または「公開に進む」ボタンを確実に探してクリック！
-                page.locator('button:has-text("公開設定"), button:has-text("公開に進む")').first.click()
+                # PC版noteでは現在「公開設定」→「投稿する」が基本フロー。
+                # hiddenな同名要素を .first で拾わないよう、可視要素を優先する。
+                publish_settings = page.locator('button').filter(has_text=re.compile(r'^(公開設定|公開に進む)
+            else:
+                print("📝 記事をそのまま「下書き」保存します！")
+                page.get_by_text("下書き保存").first.click()
+                final_status = "下書き済"
+
+            time.sleep(5)
+
+            print(f"📤 GASのステータスを「{final_status}」に更新中...")
+            update_res = requests.post(GAS_URL, json={"row": row_num, "status": final_status})
+            print(f"✅ GAS更新結果: {update_res.text}")
+
+        except Exception as e:
+            print(f"❌ エラーが発生しました: {e}")
+            traceback.print_exc()
+        finally:
+            browser.close()
+
+if __name__ == "__main__":
+    main()
+))
+                if publish_settings.count() > 0:
+                    publish_settings.filter(visible=True).first.click(timeout=10000)
+                else:
+                    page.get_by_text(re.compile(r'^(公開設定|公開に進む)
+            else:
+                print("📝 記事をそのまま「下書き」保存します！")
+                page.get_by_text("下書き保存").first.click()
+                final_status = "下書き済"
+
+            time.sleep(5)
+
+            print(f"📤 GASのステータスを「{final_status}」に更新中...")
+            update_res = requests.post(GAS_URL, json={"row": row_num, "status": final_status})
+            print(f"✅ GAS更新結果: {update_res.text}")
+
+        except Exception as e:
+            print(f"❌ エラーが発生しました: {e}")
+            traceback.print_exc()
+        finally:
+            browser.close()
+
+if __name__ == "__main__":
+    main()
+)).filter(visible=True).first.click(timeout=10000)
                 time.sleep(3)
 
                 print("🏷️ ハッシュタグを設定中...")
-                # 💡 プレースホルダーの文字を実際のnoteに合わせて修正！
-                hashtag_input = page.locator('input[placeholder*="タグ入力後"], input[placeholder*="ハッシュタグを追加"]').first
-                if hashtag_input.is_visible():
+                hashtag_inputs = page.locator('input[placeholder*="タグ入力後"], input[placeholder*="ハッシュタグを追加"]')
+                if hashtag_inputs.count() > 0 and hashtag_inputs.first.is_visible():
+                    hashtag_input = hashtag_inputs.first
                     for tag in hashtags:
-                        hashtag_input.type(tag, delay=100)
+                        hashtag_input.fill(tag)
                         page.keyboard.press("Enter")
                         time.sleep(0.5)
                 else:
                     print("⚠️ ハッシュタグ入力欄が見つからなかったためスキップします！")
 
                 print("🚀 記事を「公開」します！")
-                # 💡 「公開する」または「投稿する」ボタンを確実にクリック！
-                page.locator('button:has-text("公開する"), button:has-text("投稿する")').first.click()
+                # noteのPC版は「投稿する」、環境によっては「公開する / 公開」もあり得る。
+                # まず可視buttonを探し、見つからない場合は可視DOM要素をJSから拾う。
+                publish_button = page.locator('button').filter(has_text=re.compile(r'^(投稿する|公開する|公開)
+            else:
+                print("📝 記事をそのまま「下書き」保存します！")
+                page.get_by_text("下書き保存").first.click()
+                final_status = "下書き済"
+
+            time.sleep(5)
+
+            print(f"📤 GASのステータスを「{final_status}」に更新中...")
+            update_res = requests.post(GAS_URL, json={"row": row_num, "status": final_status})
+            print(f"✅ GAS更新結果: {update_res.text}")
+
+        except Exception as e:
+            print(f"❌ エラーが発生しました: {e}")
+            traceback.print_exc()
+        finally:
+            browser.close()
+
+if __name__ == "__main__":
+    main()
+))
+                if publish_button.count() > 0:
+                    visible_publish = publish_button.filter(visible=True)
+                    if visible_publish.count() > 0:
+                        visible_publish.first.click(timeout=10000)
+                    else:
+                        raise RuntimeError("公開設定画面に可視の投稿ボタンがありません")
+                else:
+                    clicked = page.evaluate("""
+                        () => {
+                            const names = ['投稿する', '公開する', '公開'];
+                            const normalize = s => (s || '').replace(/\\s+/g, '').trim();
+                            const visible = el => {
+                                const r = el.getBoundingClientRect();
+                                const st = getComputedStyle(el);
+                                return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none';
+                            };
+                            const nodes = [...document.querySelectorAll('button, [role="button"], a, div')];
+                            for (const el of nodes) {
+                                if (!visible(el)) continue;
+                                if (!names.includes(normalize(el.textContent))) continue;
+                                const clickable = el.closest('button, [role="button"], a') || el;
+                                clickable.click();
+                                return normalize(el.textContent);
+                            }
+                            return null;
+                        }
+                    """)
+                    if (!clicked:
+                        # 最後に診断情報を出して、次回DOM変更があっても原因を追いやすくする。
+                        visible_buttons = page.locator('button:visible').all_text_contents()
+                        print(f"🔎 公開設定画面の可視ボタン: {visible_buttons}")
+                        raise RuntimeError("投稿ボタン（投稿する / 公開する / 公開）が見つかりません")
+                    print(f"✅ 投稿ボタンをクリックしました: {clicked}")
                 final_status = "投稿済"
             else:
                 print("📝 記事をそのまま「下書き」保存します！")
