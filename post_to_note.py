@@ -207,15 +207,93 @@ def main():
 
             print("📑 目次を挿入するよ...")
             try:
-                page.keyboard.type("/")
-                time.sleep(1.5)
-                page.locator('text="目次"').first.click(timeout=3000)
+                # 現在のnoteは「/」コマンドより、本文の「+」ブロック追加メニューから
+                # 「目次」を選ぶ方が安定する。
+                add_result = page.evaluate("""
+                    () => {
+                        const visible = el => {
+                            const r = el.getBoundingClientRect();
+                            const st = getComputedStyle(el);
+                            return r.width > 0 && r.height > 0 &&
+                                   st.visibility !== 'hidden' && st.display !== 'none';
+                        };
+                        const nodes = [...document.querySelectorAll('button, [role="button"]')];
+                        const candidates = nodes.filter(el => {
+                            if (!visible(el)) return false;
+                            const text = (el.textContent || '').replace(/\\s+/g, '').trim();
+                            const label = [
+                                el.getAttribute('aria-label'),
+                                el.getAttribute('title'),
+                                el.getAttribute('data-testid')
+                            ].filter(Boolean).join(' ');
+                            return text === '+' ||
+                                   /ブロック.*追加|追加.*ブロック|ブロックを追加|add block/i.test(label);
+                        });
+                        if (!candidates.length) return null;
+                        candidates[candidates.length - 1].click();
+                        return candidates[candidates.length - 1].outerHTML.slice(0, 500);
+                    }
+                """)
+                if not add_result:
+                    raise RuntimeError("本文の「+」ブロック追加ボタンが見つかりません")
+                print(f"🔎 ブロック追加ボタンをクリック: {add_result}")
+
                 time.sleep(1)
-                page.keyboard.press("Enter")
-                print("✅ 目次を挿入したよ！")
+
+                toc_result = page.evaluate("""
+                    () => {
+                        const visible = el => {
+                            const r = el.getBoundingClientRect();
+                            const st = getComputedStyle(el);
+                            return r.width > 0 && r.height > 0 &&
+                                   st.visibility !== 'hidden' && st.display !== 'none';
+                        };
+                        const nodes = [...document.querySelectorAll('button, [role="button"], a, li, div, span')];
+                        const matches = nodes.filter(el => {
+                            if (!visible(el)) return false;
+                            return (el.textContent || '').replace(/\\s+/g, '').trim() === '目次';
+                        });
+                        if (!matches.length) return null;
+                        const target = matches[matches.length - 1];
+                        const clickable = target.closest('button, [role="button"], a') || target;
+                        clickable.click();
+                        return clickable.outerHTML.slice(0, 500);
+                    }
+                """)
+                if not toc_result:
+                    raise RuntimeError("ブロック追加メニュー内の「目次」が見つかりません")
+                print(f"🔎 「目次」をクリック: {toc_result}")
+                time.sleep(1)
+
+                toc_state = page.evaluate("""
+                    () => {
+                        const editor = document.querySelector('.ProseMirror');
+                        if (!editor) return {found: false, reason: 'ProseMirrorなし'};
+                        const matches = [...editor.querySelectorAll('*')].filter(el => {
+                            const attrs = [
+                                el.className,
+                                el.getAttribute('data-type'),
+                                el.getAttribute('data-node-type'),
+                                el.getAttribute('aria-label'),
+                                el.getAttribute('title')
+                            ].filter(Boolean).join(' ');
+                            return /toc|table.?of.?contents|目次/i.test(attrs);
+                        });
+                        return {
+                            found: matches.length > 0,
+                            matches: matches.slice(0, 5).map(el => ({
+                                tag: el.tagName,
+                                cls: String(el.className || '').slice(0, 180),
+                                type: el.getAttribute('data-type'),
+                                text: (el.textContent || '').trim().slice(0, 80)
+                            }))
+                        };
+                    }
+                """)
+                print(f"🔎 目次ブロック確認: {JSON.stringify(toc_state, ensure_ascii=False)}")
+                print("✅ 目次の挿入処理を完了したよ！")
             except Exception as e:
                 print(f"⚠️ 目次挿入スキップ: {e}")
-                page.keyboard.press("Backspace")
 
             print("✍️ 本文を1行ずつタイピングして流し込むよ...")
 
@@ -279,31 +357,74 @@ def main():
                     publish_settings.first.click(timeout=10000)
                 else:
                     raise RuntimeError("公開設定ボタンが見つかりません")
-                time.sleep(3)
+
+                # 公開設定はモーダル/画面遷移のアニメーションがあるため、
+                # 固定3秒ではなく公開ボタンが現れるまで少し待つ。
+                time.sleep(1)
+                print(f"🔎 公開設定クリック後URL: {page.url}")
+
+                for _ in range(10):
+                    has_publish_ui = (
+                        page.locator('button:visible').filter(has_text="投稿する").count() > 0 or
+                        page.locator('button:visible').filter(has_text="公開する").count() > 0 or
+                        page.locator('[role="button"]:visible').filter(has_text="投稿する").count() > 0 or
+                        page.locator('[role="button"]:visible').filter(has_text="公開する").count() > 0
+                    )
+                    if has_publish_ui:
+                        break
+                    time.sleep(0.5)
+
+                # 次回note側のDOM変更にも対応できるよう、公開設定後の実画面をログに残す。
+                try:
+                    screen_text = page.locator('body').inner_text(timeout=3000)
+                    print(f"🔎 公開設定後の画面テキスト: {screen_text[:1800]}")
+                except Exception as e:
+                    print(f"⚠️ 公開設定後の画面テキスト取得失敗: {e}")
+
+                try:
+                    dialogs = page.locator('[role="dialog"]:visible, [class*="Modal"]:visible, [class*="modal"]:visible')
+                    dialog_count = dialogs.count()
+                    print(f"🔎 公開設定後の可視ダイアログ数: {dialog_count}")
+                    for i in range(min(dialog_count, 3)):
+                        try:
+                            print(f"🔎 ダイアログ{i+1}: {dialogs.nth(i).inner_text()[:800]}")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
 
                 print("🏷️ ハッシュタグを設定中...")
-                hashtag_inputs = page.locator('input[placeholder*="タグ入力後"], input[placeholder*="ハッシュタグを追加"]')
-                if hashtag_inputs.count() > 0 and hashtag_inputs.first.is_visible():
-                    hashtag_input = hashtag_inputs.first
-                    for tag in hashtags:
-                        hashtag_input.fill(tag)
-                        page.keyboard.press("Enter")
-                        time.sleep(0.5)
+                hashtag_inputs = page.locator(
+                    'input[placeholder*="タグ入力後"], '
+                    'input[placeholder*="ハッシュタグを追加"], '
+                    'input[placeholder*="ハッシュタグ"], '
+                    'input[aria-label*="ハッシュタグ"], '
+                    'input[name*="hashtag" i]'
+                )
+                if hashtag_inputs.count() > 0:
+                    visible_hashtags = [i for i in range(hashtag_inputs.count()) if hashtag_inputs.nth(i).is_visible()]
+                    if visible_hashtags:
+                        hashtag_input = hashtag_inputs.nth(visible_hashtags[0])
+                        for tag in hashtags:
+                            hashtag_input.fill(tag)
+                            page.keyboard.press("Enter")
+                            time.sleep(0.5)
+                    else:
+                        print("⚠️ ハッシュタグ入力欄はDOMにありますが非表示でした。スキップします！")
                 else:
                     print("⚠️ ハッシュタグ入力欄が見つからなかったためスキップします！")
 
                 print("🚀 記事を「公開」します！")
-                # noteのPC版は「投稿する」。環境差に備えて「公開する」「公開」も許容。
-                publish_button = page.locator('button:visible').filter(has_text="投稿する")
+                publish_button = page.locator('button:visible, [role="button"]:visible').filter(has_text="投稿する")
                 if publish_button.count() == 0:
-                    publish_button = page.locator('button:visible').filter(has_text="公開する")
+                    publish_button = page.locator('button:visible, [role="button"]:visible').filter(has_text="公開する")
                 if publish_button.count() == 0:
-                    publish_button = page.locator('button:visible').filter(has_text="公開")
+                    publish_button = page.locator('button:visible, [role="button"]:visible').filter(has_text="公開")
 
                 if publish_button.count() > 0:
                     publish_button.first.click(timeout=10000)
+                    print(f"✅ 投稿ボタンをクリックしました: {publish_button.first.inner_text()}")
                 else:
-                    # button以外のDOM構造になっている場合の最後のフォールバック。
                     clicked = page.evaluate("""
                         () => {
                             const names = ['投稿する', '公開する', '公開'];
@@ -314,7 +435,9 @@ def main():
                                 return r.width > 0 && r.height > 0 &&
                                        st.visibility !== 'hidden' && st.display !== 'none';
                             };
-                            const nodes = [...document.querySelectorAll('button, [role="button"], a, div')];
+                            const nodes = [...document.querySelectorAll(
+                                'button, [role="button"], a, div, span'
+                            )];
                             for (const el of nodes) {
                                 if (!visible(el)) continue;
                                 if (!names.includes(normalize(el.textContent))) continue;
@@ -326,7 +449,7 @@ def main():
                         }
                     """)
                     if not clicked:
-                        visible_buttons = page.locator('button:visible').all_text_contents()
+                        visible_buttons = page.locator('button:visible, [role="button"]:visible').all_text_contents()
                         print(f"🔎 公開設定画面の可視ボタン: {visible_buttons}")
                         raise RuntimeError("投稿ボタン（投稿する / 公開する / 公開）が見つかりません")
                     print(f"✅ 投稿ボタンをクリックしました: {clicked}")
