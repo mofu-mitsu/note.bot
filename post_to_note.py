@@ -5,7 +5,6 @@ import requests
 import random
 import urllib.parse
 import traceback
-import re
 from playwright.sync_api import sync_playwright
 
 GAS_URL = os.environ.get(
@@ -235,8 +234,66 @@ def main():
             if publish_type == "公開":
                 print("⚙️ 公開設定画面を開くよ...")
                 # PC版noteでは現在「公開設定」→「投稿する」が基本フロー。
-                # hiddenな同名要素を .first で拾わないよう、可視要素を優先する。
-                publish_settings = page.locator('button').filter(has_text=re.compile(r'^(公開設定|公開に進む)
+                # hiddenな同名要素を .first で拾わないよう、可視buttonを優先する。
+                publish_settings = page.locator('button:visible').filter(has_text="公開設定")
+                if publish_settings.count() == 0:
+                    publish_settings = page.locator('button:visible').filter(has_text="公開に進む")
+                if publish_settings.count() > 0:
+                    publish_settings.first.click(timeout=10000)
+                else:
+                    raise RuntimeError("公開設定ボタンが見つかりません")
+                time.sleep(3)
+
+                print("🏷️ ハッシュタグを設定中...")
+                hashtag_inputs = page.locator('input[placeholder*="タグ入力後"], input[placeholder*="ハッシュタグを追加"]')
+                if hashtag_inputs.count() > 0 and hashtag_inputs.first.is_visible():
+                    hashtag_input = hashtag_inputs.first
+                    for tag in hashtags:
+                        hashtag_input.fill(tag)
+                        page.keyboard.press("Enter")
+                        time.sleep(0.5)
+                else:
+                    print("⚠️ ハッシュタグ入力欄が見つからなかったためスキップします！")
+
+                print("🚀 記事を「公開」します！")
+                # noteのPC版は「投稿する」。環境差に備えて「公開する」「公開」も許容。
+                publish_button = page.locator('button:visible').filter(has_text="投稿する")
+                if publish_button.count() == 0:
+                    publish_button = page.locator('button:visible').filter(has_text="公開する")
+                if publish_button.count() == 0:
+                    publish_button = page.locator('button:visible').filter(has_text="公開")
+
+                if publish_button.count() > 0:
+                    publish_button.first.click(timeout=10000)
+                else:
+                    # button以外のDOM構造になっている場合の最後のフォールバック。
+                    clicked = page.evaluate("""
+                        () => {
+                            const names = ['投稿する', '公開する', '公開'];
+                            const normalize = s => (s || '').replace(/\\s+/g, '').trim();
+                            const visible = el => {
+                                const r = el.getBoundingClientRect();
+                                const st = getComputedStyle(el);
+                                return r.width > 0 && r.height > 0 &&
+                                       st.visibility !== 'hidden' && st.display !== 'none';
+                            };
+                            const nodes = [...document.querySelectorAll('button, [role="button"], a, div')];
+                            for (const el of nodes) {
+                                if (!visible(el)) continue;
+                                if (!names.includes(normalize(el.textContent))) continue;
+                                const clickable = el.closest('button, [role="button"], a') || el;
+                                clickable.click();
+                                return normalize(el.textContent);
+                            }
+                            return null;
+                        }
+                    """)
+                    if not clicked:
+                        visible_buttons = page.locator('button:visible').all_text_contents()
+                        print(f"🔎 公開設定画面の可視ボタン: {visible_buttons}")
+                        raise RuntimeError("投稿ボタン（投稿する / 公開する / 公開）が見つかりません")
+                    print(f"✅ 投稿ボタンをクリックしました: {clicked}")
+                final_status = "投稿済"
             else:
                 print("📝 記事をそのまま「下書き」保存します！")
                 page.get_by_text("下書き保存").first.click()
